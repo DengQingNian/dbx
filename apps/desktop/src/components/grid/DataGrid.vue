@@ -56,6 +56,7 @@ import {
   PanelBottom,
   PanelRight,
   TableProperties,
+  Map as MapIcon,
 } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import CustomContextMenu, { type ContextMenuItem } from "@/components/ui/CustomContextMenu.vue";
@@ -122,11 +123,13 @@ import {
   cellDetailEditorText,
   defaultCellDetailTab,
   formatJsonText,
+  isGeometryColumnType,
   linkedCellDetailTarget,
   valueEditorActions,
   visibleCellDetailTabs,
   type CellDetailTab,
 } from "@/lib/cellDetailPresentation";
+import { renderWktOnCanvas } from "@/lib/geometryPreview";
 import {
   buildDataGridCellDetail,
   buildDataGridColumnDetail,
@@ -404,6 +407,7 @@ function typeColorClass(t: string): string {
   if (["json", "jsonb", "xml", "array"].includes(base)) return "text-pink-500";
   if (["uuid", "uniqueidentifier"].includes(base)) return "text-amber-500";
   if (["bytea", "blob", "binary", "varbinary", "image"].includes(base)) return "text-red-400";
+  if (["geometry", "geography"].includes(base)) return "text-emerald-500";
   return "text-muted-foreground";
 }
 const contextCell = ref<{ rowId: number; rowIndex: number; col: number } | null>(null);
@@ -426,6 +430,10 @@ const isResizingDetail = ref(false);
 const imagePreviewOpen = ref(false);
 const imagePreviewSrc = ref("");
 const imagePreviewTitle = ref("");
+const sideGeometryPreviewOpen = ref(false);
+const dialogGeometryPreviewOpen = ref(false);
+const sideGeometryCanvas = ref<HTMLCanvasElement | null>(null);
+const dialogGeometryCanvas = ref<HTMLCanvasElement | null>(null);
 const transposeRowIndex = ref<number | null>(null);
 const showTranspose = ref(false);
 const preserveTransposeOnNextResult = ref(false);
@@ -2586,6 +2594,28 @@ watch(rowDetailDialogOpen, (open) => {
 
 watch(columnDetailDialogOpen, (open) => {
   if (!open) columnDetailDialogColumnIndex.value = null;
+});
+
+watch(sideGeometryPreviewOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    const canvas = sideGeometryCanvas.value;
+    const detail = activeCellDetail.value;
+    if (canvas && detail && detail.value !== null) {
+      renderWktOnCanvas(canvas, String(detail.value));
+    }
+  }
+});
+
+watch(dialogGeometryPreviewOpen, async (open) => {
+  if (open) {
+    await nextTick();
+    const canvas = dialogGeometryCanvas.value;
+    const detail = dialogCellDetail.value;
+    if (canvas && detail && detail.value !== null) {
+      renderWktOnCanvas(canvas, String(detail.value));
+    }
+  }
 });
 
 const activeCellDetailTabs = computed(() => {
@@ -7400,6 +7430,33 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                         />
                       </a>
                     </div>
+                    <div
+                      v-if="
+                        isGeometryColumnType(activeCellDetail.type) &&
+                        activeCellDetail.value !== null &&
+                        !isEditingDetail
+                      "
+                      class="space-y-1.5"
+                    >
+                      <div class="text-muted-foreground">{{ t("grid.geometryPreview") }}</div>
+                      <Popover v-model:open="sideGeometryPreviewOpen">
+                        <PopoverTrigger as-child>
+                          <Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs">
+                            <MapIcon class="h-3.5 w-3.5" />
+                            {{ t("grid.geometryPreview") }}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent class="w-auto p-1.5" align="start">
+                          <canvas
+                            v-show="sideGeometryPreviewOpen"
+                            ref="sideGeometryCanvas"
+                            width="400"
+                            height="280"
+                            class="block rounded"
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                     <template v-if="isEditingDetail">
                       <TemporalCellEditor
                         v-if="detailTemporalEditorKind"
@@ -7789,6 +7846,29 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                 class="max-h-72 w-full object-contain"
               />
             </a>
+            <div
+              v-if="isGeometryColumnType(dialogCellDetail.type) && dialogCellDetail.value !== null"
+              class="flex items-center gap-2"
+            >
+              <div class="text-muted-foreground">{{ t("grid.geometryPreview") }}</div>
+              <Popover v-model:open="dialogGeometryPreviewOpen">
+                <PopoverTrigger as-child>
+                  <Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs">
+                    <MapIcon class="h-3.5 w-3.5" />
+                    {{ t("grid.geometryPreview") }}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent class="w-auto p-1.5" align="start">
+                  <canvas
+                    v-show="dialogGeometryPreviewOpen"
+                    ref="dialogGeometryCanvas"
+                    width="400"
+                    height="280"
+                    class="block rounded"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
             <pre
               class="max-h-[44vh] overflow-auto rounded border bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap break-words"
               :class="{ 'italic text-muted-foreground': dialogCellDetail.value === null }"
