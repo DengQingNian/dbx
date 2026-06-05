@@ -34,6 +34,7 @@ import {
   SearchX,
   Code2,
   Copy,
+  Eye,
   Loader2,
   X,
   Undo2,
@@ -56,7 +57,6 @@ import {
   PanelBottom,
   PanelRight,
   TableProperties,
-  Map as MapIcon,
 } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import CustomContextMenu, { type ContextMenuItem } from "@/components/ui/CustomContextMenu.vue";
@@ -129,7 +129,7 @@ import {
   visibleCellDetailTabs,
   type CellDetailTab,
 } from "@/lib/cellDetailPresentation";
-import { renderWktOnCanvas } from "@/lib/geometryPreview";
+import { renderWktOnCanvas, isHexGeometry } from "@/lib/geometryPreview";
 import {
   buildDataGridCellDetail,
   buildDataGridColumnDetail,
@@ -7410,6 +7410,31 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        <!-- Skip hex fallback from backend (unsupported geometry types like TIN/Triangle) -->
+                        <Popover
+                          v-if="
+                            isGeometryColumnType(activeCellDetail.type) &&
+                            activeCellDetail.value !== null &&
+                            !isEditingDetail &&
+                            !isHexGeometry(activeCellDetail.value as string)
+                          "
+                          v-model:open="sideGeometryPreviewOpen"
+                        >
+                          <PopoverTrigger as-child>
+                            <Button variant="ghost" size="icon" class="h-6 w-6" :title="t('grid.geometryPreview')">
+                              <Eye class="h-3 w-3" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent class="w-auto p-1.5" align="end">
+                            <canvas
+                              v-show="sideGeometryPreviewOpen"
+                              ref="sideGeometryCanvas"
+                              width="400"
+                              height="280"
+                              class="block rounded"
+                            />
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </div>
                     <div v-if="activeCellDetail.imagePreviewUrl && !isEditingDetail" class="space-y-1.5">
@@ -7429,33 +7454,6 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                           class="max-h-72 w-full object-contain"
                         />
                       </a>
-                    </div>
-                    <div
-                      v-if="
-                        isGeometryColumnType(activeCellDetail.type) &&
-                        activeCellDetail.value !== null &&
-                        !isEditingDetail
-                      "
-                      class="space-y-1.5"
-                    >
-                      <div class="text-muted-foreground">{{ t("grid.geometryPreview") }}</div>
-                      <Popover v-model:open="sideGeometryPreviewOpen">
-                        <PopoverTrigger as-child>
-                          <Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs">
-                            <MapIcon class="h-3.5 w-3.5" />
-                            {{ t("grid.geometryPreview") }}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent class="w-auto p-1.5" align="start">
-                          <canvas
-                            v-show="sideGeometryPreviewOpen"
-                            ref="sideGeometryCanvas"
-                            width="400"
-                            height="280"
-                            class="block rounded"
-                          />
-                        </PopoverContent>
-                      </Popover>
                     </div>
                     <template v-if="isEditingDetail">
                       <TemporalCellEditor
@@ -7828,6 +7826,30 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <!-- Skip hex fallback from backend (unsupported geometry types like TIN/Triangle) -->
+                <Popover
+                  v-if="
+                    isGeometryColumnType(dialogCellDetail.type) &&
+                    dialogCellDetail.value !== null &&
+                    !isHexGeometry(dialogCellDetail.value as string)
+                  "
+                  v-model:open="dialogGeometryPreviewOpen"
+                >
+                  <PopoverTrigger as-child>
+                    <Button variant="ghost" size="icon" class="h-6 w-6" :title="t('grid.geometryPreview')">
+                      <Eye class="h-3 w-3" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent class="w-auto p-1.5" align="end">
+                    <canvas
+                      v-show="dialogGeometryPreviewOpen"
+                      ref="dialogGeometryCanvas"
+                      width="400"
+                      height="280"
+                      class="block rounded"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <a
@@ -7846,29 +7868,6 @@ const gridContextMenuItems = computed<ContextMenuItem[]>(() => {
                 class="max-h-72 w-full object-contain"
               />
             </a>
-            <div
-              v-if="isGeometryColumnType(dialogCellDetail.type) && dialogCellDetail.value !== null"
-              class="flex items-center gap-2"
-            >
-              <div class="text-muted-foreground">{{ t("grid.geometryPreview") }}</div>
-              <Popover v-model:open="dialogGeometryPreviewOpen">
-                <PopoverTrigger as-child>
-                  <Button variant="outline" size="sm" class="h-7 gap-1.5 text-xs">
-                    <MapIcon class="h-3.5 w-3.5" />
-                    {{ t("grid.geometryPreview") }}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent class="w-auto p-1.5" align="start">
-                  <canvas
-                    v-show="dialogGeometryPreviewOpen"
-                    ref="dialogGeometryCanvas"
-                    width="400"
-                    height="280"
-                    class="block rounded"
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
             <pre
               class="max-h-[44vh] overflow-auto rounded border bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap break-words"
               :class="{ 'italic text-muted-foreground': dialogCellDetail.value === null }"

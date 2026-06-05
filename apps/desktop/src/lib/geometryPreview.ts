@@ -210,7 +210,24 @@ function detectWktType(wkt: string): string {
   return m ? m[1].toUpperCase() : "GEOMETRYCOLLECTION";
 }
 
+// EWKB parsing on the backend can fall back to hex for unsupported geometry types
+// (e.g. TIN, Triangle, CircularString). Don't attempt to render hex as WKT.
+export function isHexGeometry(value: string): boolean {
+  return value.startsWith("0x");
+}
+
 export function renderWktOnCanvas(canvas: HTMLCanvasElement, wkt: string): void {
+  if (isHexGeometry(wkt)) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#888";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Preview not available for binary format", canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
   const type = detectWktType(wkt);
   const tokens = tokenize(wkt);
   const { groups } = parseGroups(tokens, 0);
