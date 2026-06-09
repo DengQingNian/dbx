@@ -549,6 +549,29 @@ pub async fn redis_json_set_in_db_core(
     }
 }
 
+pub async fn redis_check_json_module_in_db_core(
+    state: &AppState,
+    connection_id: &str,
+    db: u32,
+) -> Result<bool, String> {
+    let connections = state.connections.read().await;
+    match connections.get(connection_id).ok_or("Not found")? {
+        PoolKind::Redis(redis) => match redis {
+            RedisConnection::Direct(con) => {
+                let mut con = con.lock().await;
+                redis_driver::select_db(&mut *con, db).await?;
+                redis_driver::check_json_module(&mut *con).await
+            }
+            RedisConnection::Cluster(cluster) => {
+                redis_driver::ensure_cluster_db(db)?;
+                let mut con = cluster.connection.lock().await;
+                redis_driver::check_json_module(&mut *con).await
+            }
+        },
+        _ => Err("Not a Redis connection".to_string()),
+    }
+}
+
 pub async fn redis_set_ttl_in_db_core(
     state: &AppState,
     connection_id: &str,

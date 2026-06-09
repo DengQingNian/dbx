@@ -367,6 +367,16 @@ pub async fn json_set(
     Ok(Json(()))
 }
 
+pub async fn check_json_module(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisDbRequest>,
+) -> Result<Json<bool>, AppError> {
+    let result = dbx_core::redis_ops::redis_check_json_module_in_db_core(&state.app, &req.connection_id, req.db)
+        .await
+        .map_err(AppError)?;
+    Ok(Json(result))
+}
+
 pub async fn delete_keys(
     State(state): State<Arc<WebState>>,
     Json(req): Json<RedisKeysRequest>,

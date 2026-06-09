@@ -1416,6 +1416,10 @@ export async function redisJsonSet(
   return post("/api/redis/json-set", { connectionId, db, keyRaw, value, ttl });
 }
 
+export async function redisCheckJsonModule(connectionId: string, db: number): Promise<boolean> {
+  return post("/api/redis/check-json-module", { connectionId, db });
+}
+
 export async function redisSetTtl(connectionId: string, db: number, keyRaw: string, ttl: number): Promise<void> {
   return post("/api/redis/set-ttl", { connectionId, db, keyRaw, ttl });
 }

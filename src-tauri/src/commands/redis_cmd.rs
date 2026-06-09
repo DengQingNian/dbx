@@ -201,6 +201,15 @@ pub async fn redis_json_set(
 }
 
 #[tauri::command]
+pub async fn redis_check_json_module(
+    state: State<'_, Arc<AppState>>,
+    connection_id: String,
+    db: u32,
+) -> Result<bool, String> {
+    dbx_core::redis_ops::redis_check_json_module_in_db_core(&state, &connection_id, db).await
+}
+
+#[tauri::command]
 pub async fn redis_set_ttl(
     state: State<'_, Arc<AppState>>,
     connection_id: String,

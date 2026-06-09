@@ -1234,6 +1234,10 @@ export async function redisJsonSet(
   return invoke("redis_json_set", { connectionId, db, keyRaw, value, ttl });
 }
 
+export async function redisCheckJsonModule(connectionId: string, db: number): Promise<boolean> {
+  return invoke("redis_check_json_module", { connectionId, db });
+}
+
 export async function redisSetTtl(connectionId: string, db: number, keyRaw: string, ttl: number): Promise<void> {
   return invoke("redis_set_ttl", { connectionId, db, keyRaw, ttl });
 }

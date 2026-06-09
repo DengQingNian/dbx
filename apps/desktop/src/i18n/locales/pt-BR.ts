@@ -1340,6 +1340,7 @@ export default {
     createKeyRawMode: "Entrada bruta",
     createKeyEntries: "Entradas",
     createValuePlaceholder: "valor",
+    jsonModuleNotAvailable: "Módulo ReJSON não está carregado neste servidor Redis",
     createKeySubmit: "Criar",
     createKeyNameRequired: "Insira um nome de chave",
     createFieldRequired: "Insira um campo de hash",

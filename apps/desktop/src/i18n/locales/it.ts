@@ -1345,6 +1345,7 @@ export default {
     createKeyRawMode: "Input raw",
     createKeyEntries: "Voci",
     createValuePlaceholder: "valore",
+    jsonModuleNotAvailable: "Il modulo ReJSON non è caricato su questo server Redis",
     createKeySubmit: "Crea",
     createKeyNameRequired: "Inserisci un nome chiave",
     createFieldRequired: "Inserisci un campo hash",

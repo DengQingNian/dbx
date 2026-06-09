@@ -245,6 +245,7 @@ async fn main() {
         .route("/redis/zadd", post(routes::redis::zadd))
         .route("/redis/stream-add", post(routes::redis::stream_add))
         .route("/redis/json-set", post(routes::redis::json_set))
+        .route("/redis/check-json-module", post(routes::redis::check_json_module))
         .route("/redis/delete-keys", post(routes::redis::delete_keys))
         .route("/redis/flush-db", post(routes::redis::flush_db))
         .route("/redis/execute-command", post(routes::redis::execute_command))

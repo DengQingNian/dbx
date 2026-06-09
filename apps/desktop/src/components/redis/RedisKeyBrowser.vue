@@ -113,6 +113,7 @@ const createKeyTtl = ref("");
 const createKeyEntries = ref<CreateKeyEntry[]>([]);
 const createKeyRawMode = ref(false);
 const createKeyEntryId = ref("*");
+const jsonModuleAvailable = ref<boolean | null>(null);
 let nextEntryId = 0;
 let searchRequestId = 0;
 let redisBrowserIsActive = true;
@@ -488,13 +489,23 @@ function resetCreateKeyForm() {
   createKeyTtl.value = "";
   createKeyRawMode.value = false;
   createKeyEntryId.value = "*";
+  jsonModuleAvailable.value = null;
   resetEntries();
 }
 
 function onCreateKeyTypeChange(type: any) {
   createKeyType.value = (type || "string") as RedisCreateKeyType;
   createKeyRawMode.value = false;
+  jsonModuleAvailable.value = null;
   resetEntries();
+  if (createKeyType.value === "json") {
+    api.redisCheckJsonModule(props.connectionId, props.db).then((ok) => {
+      jsonModuleAvailable.value = ok;
+      if (!ok) {
+        createKeyError.value = t("redis.jsonModuleNotAvailable");
+      }
+    });
+  }
 }
 
 function openCreateKeyDialog() {
@@ -1245,7 +1256,10 @@ defineExpose({ focusSearch });
           <Button variant="ghost" :disabled="creatingKey" @click="showCreateKeyDialog = false">
             {{ t("dangerDialog.cancel") }}
           </Button>
-          <Button :disabled="creatingKey" @click="createRedisKey">
+          <Button
+            :disabled="creatingKey || (createKeyType === 'json' && jsonModuleAvailable === false)"
+            @click="createRedisKey"
+          >
             <Loader2 v-if="creatingKey" class="h-4 w-4 animate-spin" />
             <Plus v-else class="h-4 w-4" />
             {{ t("redis.createKeySubmit") }}
