@@ -108,6 +108,16 @@ pub struct RedisStreamAddRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RedisJsonSetRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub value: String,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RedisKeysRequest {
     pub connection_id: String,
     pub db: u32,
@@ -333,6 +343,23 @@ pub async fn stream_add(
         &req.key_raw,
         &req.entry_id,
         req.fields,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError)?;
+    Ok(Json(()))
+}
+
+pub async fn json_set(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<RedisJsonSetRequest>,
+) -> Result<Json<()>, AppError> {
+    dbx_core::redis_ops::redis_json_set_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.value,
         req.ttl,
     )
     .await

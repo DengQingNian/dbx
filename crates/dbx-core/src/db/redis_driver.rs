@@ -1283,6 +1283,14 @@ where
     apply_expire_if_needed(con, key, ttl).await
 }
 
+pub async fn json_set<C>(con: &mut C, key: &[u8], value: &str, ttl: Option<i64>) -> Result<(), String>
+where
+    C: ConnectionLike + Send + Sync + Unpin,
+{
+    redis::cmd("JSON.SET").arg(key).arg("$").arg(value).query_async::<()>(con).await.map_err(|e| e.to_string())?;
+    apply_expire_if_needed(con, key, ttl).await
+}
+
 pub async fn set_ttl<C>(con: &mut C, key: &[u8], ttl: i64) -> Result<(), String>
 where
     C: ConnectionLike + Send + Sync + Unpin,

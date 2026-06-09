@@ -55,7 +55,7 @@ const settingsStore = useSettingsStore();
 const editorFontFamilyStyle = useEditorFontFamilyStyle();
 
 type RedisSearchMode = "key" | "value";
-type RedisCreateKeyType = "string" | "hash" | "list" | "set" | "zset" | "stream";
+type RedisCreateKeyType = "string" | "hash" | "list" | "set" | "zset" | "stream" | "json";
 
 interface CreateKeyEntry {
   id: number;
@@ -166,6 +166,7 @@ const createKeyTypeOptions = computed<{ value: RedisCreateKeyType; label: string
   { value: "set", label: "Set" },
   { value: "zset", label: "Sorted Set" },
   { value: "stream", label: "Stream" },
+  { value: "json", label: "JSON" },
 ]);
 const visibleRows = computed(() =>
   flattenVisibleRedisKeyTree(treeKeys.value, expandedGroupIds.value).map((row) => ({
@@ -547,10 +548,12 @@ async function createRedisKey() {
     const keyRaw = redisKeyTextToRaw(keyName);
     const ttl = createKeyTtl.value ? Number.parseInt(createKeyTtl.value) || undefined : undefined;
 
-    if (createKeyType.value === "string" || createKeyRawMode.value) {
-      // Raw text/JSON mode — existing behavior
+    if (createKeyType.value === "string" || createKeyType.value === "json" || createKeyRawMode.value) {
+      // Raw text/JSON mode — single value
       if (createKeyType.value === "string") {
         await api.redisSetString(props.connectionId, props.db, keyRaw, createKeyValue.value, ttl);
+      } else if (createKeyType.value === "json") {
+        await api.redisJsonSet(props.connectionId, props.db, keyRaw, createKeyValue.value, ttl);
       } else if (createKeyType.value === "hash") {
         await api.redisHashSet(props.connectionId, props.db, keyRaw, createKeyField.value, createKeyValue.value, ttl);
       } else if (createKeyType.value === "list") {
@@ -1142,9 +1145,9 @@ defineExpose({ focusSearch });
             />
           </label>
 
-          <!-- Raw mode toggle (non-string types except stream) -->
+          <!-- Raw mode toggle (non-string, non-stream, non-json types) -->
           <div
-            v-if="createKeyType !== 'string' && createKeyType !== 'stream'"
+            v-if="createKeyType !== 'string' && createKeyType !== 'stream' && createKeyType !== 'json'"
             class="flex items-center justify-end gap-1.5"
           >
             <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1153,8 +1156,8 @@ defineExpose({ focusSearch });
             </label>
           </div>
 
-          <!-- Structured entries (non-string, non-raw mode) -->
-          <template v-if="createKeyType !== 'string' && !createKeyRawMode">
+          <!-- Structured entries (non-string, non-json, non-raw mode) -->
+          <template v-if="createKeyType !== 'string' && createKeyType !== 'json' && !createKeyRawMode">
             <!-- Stream entry ID -->
             <label v-if="createKeyType === 'stream'" class="grid gap-1.5 text-xs font-medium">
               <span>{{ t("redis.createKeyEntryId") }}</span>
@@ -1219,8 +1222,11 @@ defineExpose({ focusSearch });
             </div>
           </template>
 
-          <!-- Raw value textarea (string type or raw mode for other types) -->
-          <label v-if="createKeyType === 'string' || createKeyRawMode" class="grid gap-1.5 text-xs font-medium">
+          <!-- Raw value textarea (string, json, or raw mode for other types) -->
+          <label
+            v-if="createKeyType === 'string' || createKeyType === 'json' || createKeyRawMode"
+            class="grid gap-1.5 text-xs font-medium"
+          >
             <span>{{
               t(createKeyType === "set" || createKeyType === "zset" ? "redis.createMember" : "redis.createValue")
             }}</span>

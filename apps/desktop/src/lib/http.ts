@@ -1406,6 +1406,16 @@ export async function redisStreamAdd(
   return post("/api/redis/stream-add", { connectionId, db, keyRaw, entryId, fields, ttl });
 }
 
+export async function redisJsonSet(
+  connectionId: string,
+  db: number,
+  keyRaw: string,
+  value: string,
+  ttl?: number,
+): Promise<void> {
+  return post("/api/redis/json-set", { connectionId, db, keyRaw, value, ttl });
+}
+
 export async function redisSetTtl(connectionId: string, db: number, keyRaw: string, ttl: number): Promise<void> {
   return post("/api/redis/set-ttl", { connectionId, db, keyRaw, ttl });
 }

@@ -1224,6 +1224,16 @@ export async function redisStreamAdd(
   return invoke("redis_stream_add", { connectionId, db, keyRaw, entryId, fields, ttl });
 }
 
+export async function redisJsonSet(
+  connectionId: string,
+  db: number,
+  keyRaw: string,
+  value: string,
+  ttl?: number,
+): Promise<void> {
+  return invoke("redis_json_set", { connectionId, db, keyRaw, value, ttl });
+}
+
 export async function redisSetTtl(connectionId: string, db: number, keyRaw: string, ttl: number): Promise<void> {
   return invoke("redis_set_ttl", { connectionId, db, keyRaw, ttl });
 }

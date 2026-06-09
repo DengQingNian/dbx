@@ -189,6 +189,18 @@ pub async fn redis_stream_add(
 }
 
 #[tauri::command]
+pub async fn redis_json_set(
+    state: State<'_, Arc<AppState>>,
+    connection_id: String,
+    db: u32,
+    key_raw: String,
+    value: String,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    dbx_core::redis_ops::redis_json_set_in_db_core(&state, &connection_id, db, &key_raw, &value, ttl).await
+}
+
+#[tauri::command]
 pub async fn redis_set_ttl(
     state: State<'_, Arc<AppState>>,
     connection_id: String,
