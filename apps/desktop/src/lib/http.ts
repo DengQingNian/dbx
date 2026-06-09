@@ -1395,6 +1395,17 @@ export async function redisZrem(connectionId: string, db: number, keyRaw: string
   return post("/api/redis/zrem", { connectionId, db, keyRaw, member });
 }
 
+export async function redisStreamAdd(
+  connectionId: string,
+  db: number,
+  keyRaw: string,
+  entryId: string,
+  fields: [string, string][],
+  ttl?: number,
+): Promise<void> {
+  return post("/api/redis/stream-add", { connectionId, db, keyRaw, entryId, fields, ttl });
+}
+
 export async function redisSetTtl(connectionId: string, db: number, keyRaw: string, ttl: number): Promise<void> {
   return post("/api/redis/set-ttl", { connectionId, db, keyRaw, ttl });
 }

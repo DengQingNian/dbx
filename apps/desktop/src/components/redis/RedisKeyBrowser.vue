@@ -55,7 +55,7 @@ const settingsStore = useSettingsStore();
 const editorFontFamilyStyle = useEditorFontFamilyStyle();
 
 type RedisSearchMode = "key" | "value";
-type RedisCreateKeyType = "string" | "hash" | "list" | "set" | "zset";
+type RedisCreateKeyType = "string" | "hash" | "list" | "set" | "zset" | "stream";
 
 interface CreateKeyEntry {
   id: number;
@@ -112,6 +112,7 @@ const createKeyError = ref("");
 const createKeyTtl = ref("");
 const createKeyEntries = ref<CreateKeyEntry[]>([]);
 const createKeyRawMode = ref(false);
+const createKeyEntryId = ref("*");
 let nextEntryId = 0;
 let searchRequestId = 0;
 let redisBrowserIsActive = true;
@@ -164,6 +165,7 @@ const createKeyTypeOptions = computed<{ value: RedisCreateKeyType; label: string
   { value: "list", label: "List" },
   { value: "set", label: "Set" },
   { value: "zset", label: "Sorted Set" },
+  { value: "stream", label: "Stream" },
 ]);
 const visibleRows = computed(() =>
   flattenVisibleRedisKeyTree(treeKeys.value, expandedGroupIds.value).map((row) => ({
@@ -484,6 +486,7 @@ function resetCreateKeyForm() {
   createKeyError.value = "";
   createKeyTtl.value = "";
   createKeyRawMode.value = false;
+  createKeyEntryId.value = "*";
   resetEntries();
 }
 
@@ -586,6 +589,14 @@ async function createRedisKey() {
               await api.redisZadd(props.connectionId, props.db, keyRaw, entry.value, s);
             }
           }
+        }
+      } else if (createKeyType.value === "stream") {
+        const fields: [string, string][] = createKeyEntries.value
+          .filter((e) => e.field && e.field.trim())
+          .map((e) => [e.field!.trim(), e.value]);
+        if (fields.length > 0) {
+          const entryId = createKeyEntryId.value.trim() || "*";
+          await api.redisStreamAdd(props.connectionId, props.db, keyRaw, entryId, fields, ttl);
         }
       }
       if (ttl) {
@@ -1131,8 +1142,11 @@ defineExpose({ focusSearch });
             />
           </label>
 
-          <!-- Raw mode toggle (non-string types) -->
-          <div v-if="createKeyType !== 'string'" class="flex items-center justify-end gap-1.5">
+          <!-- Raw mode toggle (non-string types except stream) -->
+          <div
+            v-if="createKeyType !== 'string' && createKeyType !== 'stream'"
+            class="flex items-center justify-end gap-1.5"
+          >
             <label class="flex items-center gap-1.5 text-xs text-muted-foreground">
               <span>{{ t("redis.createKeyRawMode") }}</span>
               <Switch size="sm" v-model="createKeyRawMode" />
@@ -1141,6 +1155,12 @@ defineExpose({ focusSearch });
 
           <!-- Structured entries (non-string, non-raw mode) -->
           <template v-if="createKeyType !== 'string' && !createKeyRawMode">
+            <!-- Stream entry ID -->
+            <label v-if="createKeyType === 'stream'" class="grid gap-1.5 text-xs font-medium">
+              <span>{{ t("redis.createKeyEntryId") }}</span>
+              <Input v-model="createKeyEntryId" class="dbx-editor-font-family h-8 text-xs font-mono" placeholder="*" />
+            </label>
+
             <div class="grid gap-2">
               <div class="flex items-center justify-between">
                 <span class="text-xs font-medium">{{ t("redis.createKeyEntries") }}</span>
@@ -1150,8 +1170,8 @@ defineExpose({ focusSearch });
                 </Button>
               </div>
               <div v-for="(entry, idx) in createKeyEntries" :key="entry.id" class="flex items-start gap-2">
-                <!-- Hash: field + value -->
-                <template v-if="createKeyType === 'hash'">
+                <!-- Hash / Stream: field + value -->
+                <template v-if="createKeyType === 'hash' || createKeyType === 'stream'">
                   <Input
                     v-model="entry.field"
                     class="dbx-editor-font-family h-8 w-2/5 text-xs"

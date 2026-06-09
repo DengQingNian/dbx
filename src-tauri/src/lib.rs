@@ -480,6 +480,7 @@ pub fn run() {
             commands::redis_cmd::redis_set_remove,
             commands::redis_cmd::redis_zadd,
             commands::redis_cmd::redis_zrem,
+            commands::redis_cmd::redis_stream_add,
             commands::redis_cmd::redis_set_ttl,
             commands::redis_cmd::redis_delete_keys,
             commands::redis_cmd::redis_flush_db,

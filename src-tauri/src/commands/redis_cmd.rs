@@ -176,6 +176,19 @@ pub async fn redis_zrem(
 }
 
 #[tauri::command]
+pub async fn redis_stream_add(
+    state: State<'_, Arc<AppState>>,
+    connection_id: String,
+    db: u32,
+    key_raw: String,
+    entry_id: String,
+    fields: Vec<(String, String)>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    dbx_core::redis_ops::redis_stream_add_in_db_core(&state, &connection_id, db, &key_raw, &entry_id, fields, ttl).await
+}
+
+#[tauri::command]
 pub async fn redis_set_ttl(
     state: State<'_, Arc<AppState>>,
     connection_id: String,

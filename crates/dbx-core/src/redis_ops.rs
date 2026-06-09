@@ -490,6 +490,36 @@ pub async fn redis_zrem_in_db_core(
     }
 }
 
+pub async fn redis_stream_add_in_db_core(
+    state: &AppState,
+    connection_id: &str,
+    db: u32,
+    key_raw: &str,
+    entry_id: &str,
+    fields: Vec<(String, String)>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let connections = state.connections.read().await;
+    match connections.get(connection_id).ok_or("Not found")? {
+        PoolKind::Redis(redis) => {
+            let key = redis_driver::redis_key_raw_to_bytes(key_raw)?;
+            match redis {
+                RedisConnection::Direct(con) => {
+                    let mut con = con.lock().await;
+                    redis_driver::select_db(&mut *con, db).await?;
+                    redis_driver::stream_add(&mut *con, &key, entry_id, &fields, ttl).await
+                }
+                RedisConnection::Cluster(cluster) => {
+                    redis_driver::ensure_cluster_db(db)?;
+                    let mut con = cluster.connection.lock().await;
+                    redis_driver::stream_add(&mut *con, &key, entry_id, &fields, ttl).await
+                }
+            }
+        }
+        _ => Err("Not a Redis connection".to_string()),
+    }
+}
+
 pub async fn redis_set_ttl_in_db_core(
     state: &AppState,
     connection_id: &str,

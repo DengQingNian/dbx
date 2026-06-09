@@ -1264,6 +1264,25 @@ where
     redis::cmd("ZREM").arg(key).arg(member).query_async::<()>(con).await.map_err(|e| e.to_string())
 }
 
+pub async fn stream_add<C>(
+    con: &mut C,
+    key: &[u8],
+    entry_id: &str,
+    fields: &[(String, String)],
+    ttl: Option<i64>,
+) -> Result<(), String>
+where
+    C: ConnectionLike + Send + Sync + Unpin,
+{
+    let mut cmd = redis::cmd("XADD");
+    cmd.arg(key).arg(entry_id);
+    for (field, value) in fields {
+        cmd.arg(field.as_str()).arg(value.as_str());
+    }
+    cmd.query_async::<()>(con).await.map_err(|e| e.to_string())?;
+    apply_expire_if_needed(con, key, ttl).await
+}
+
 pub async fn set_ttl<C>(con: &mut C, key: &[u8], ttl: i64) -> Result<(), String>
 where
     C: ConnectionLike + Send + Sync + Unpin,

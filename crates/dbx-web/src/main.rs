@@ -243,6 +243,7 @@ async fn main() {
         .route("/redis/set-add", post(routes::redis::set_add))
         .route("/redis/set-remove", post(routes::redis::set_remove))
         .route("/redis/zadd", post(routes::redis::zadd))
+        .route("/redis/stream-add", post(routes::redis::stream_add))
         .route("/redis/delete-keys", post(routes::redis::delete_keys))
         .route("/redis/flush-db", post(routes::redis::flush_db))
         .route("/redis/execute-command", post(routes::redis::execute_command))

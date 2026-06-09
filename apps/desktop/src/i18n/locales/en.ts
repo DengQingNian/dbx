@@ -1417,6 +1417,7 @@ export default {
     createKeyTtl: "TTL (seconds)",
     createKeyTtlPlaceholder: "empty = no expiry",
     createKeyAddEntry: "Add entry",
+    createKeyEntryId: "Entry ID",
     createKeyRawMode: "Raw input",
     createKeyEntries: "Entries",
     createValuePlaceholder: "value",

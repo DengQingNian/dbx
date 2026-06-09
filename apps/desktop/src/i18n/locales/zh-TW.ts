@@ -1271,6 +1271,7 @@ export default {
     createKeyTtl: "TTL（秒）",
     createKeyTtlPlaceholder: "留空表示永不過期",
     createKeyAddEntry: "新增項目",
+    createKeyEntryId: "項目 ID",
     createKeyRawMode: "原始輸入",
     createKeyEntries: "項目",
     createValuePlaceholder: "value",

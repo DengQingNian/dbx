@@ -1341,6 +1341,7 @@ export default {
     createKeyTtl: "TTL (secondi)",
     createKeyTtlPlaceholder: "vuoto = senza scadenza",
     createKeyAddEntry: "Aggiungi voce",
+    createKeyEntryId: "ID voce",
     createKeyRawMode: "Input raw",
     createKeyEntries: "Voci",
     createValuePlaceholder: "valore",
