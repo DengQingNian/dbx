@@ -77,8 +77,9 @@ pub async fn redis_hash_set(
     key_raw: String,
     field: String,
     value: String,
+    ttl: Option<i64>,
 ) -> Result<(), String> {
-    dbx_core::redis_ops::redis_hash_set_in_db_core(&state, &connection_id, db, &key_raw, &field, &value).await
+    dbx_core::redis_ops::redis_hash_set_in_db_core(&state, &connection_id, db, &key_raw, &field, &value, ttl).await
 }
 
 #[tauri::command]
@@ -99,8 +100,9 @@ pub async fn redis_list_push(
     db: u32,
     key_raw: String,
     value: String,
+    ttl: Option<i64>,
 ) -> Result<(), String> {
-    dbx_core::redis_ops::redis_list_push_in_db_core(&state, &connection_id, db, &key_raw, &value).await
+    dbx_core::redis_ops::redis_list_push_in_db_core(&state, &connection_id, db, &key_raw, &value, ttl).await
 }
 
 #[tauri::command]
@@ -133,8 +135,9 @@ pub async fn redis_set_add(
     db: u32,
     key_raw: String,
     member: String,
+    ttl: Option<i64>,
 ) -> Result<(), String> {
-    dbx_core::redis_ops::redis_set_add_in_db_core(&state, &connection_id, db, &key_raw, &member).await
+    dbx_core::redis_ops::redis_set_add_in_db_core(&state, &connection_id, db, &key_raw, &member, ttl).await
 }
 
 #[tauri::command]
@@ -156,8 +159,9 @@ pub async fn redis_zadd(
     key_raw: String,
     member: String,
     score: f64,
+    ttl: Option<i64>,
 ) -> Result<(), String> {
-    dbx_core::redis_ops::redis_zadd_in_db_core(&state, &connection_id, db, &key_raw, &member, score).await
+    dbx_core::redis_ops::redis_zadd_in_db_core(&state, &connection_id, db, &key_raw, &member, score, ttl).await
 }
 
 #[tauri::command]

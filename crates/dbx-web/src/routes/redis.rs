@@ -60,6 +60,18 @@ pub struct RedisHashRequest {
     pub key_raw: String,
     pub field: String,
     pub value: Option<String>,
+    pub ttl: Option<i64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisZaddRequest {
+    pub connection_id: String,
+    pub db: u32,
+    pub key_raw: String,
+    pub member: String,
+    pub score: f64,
+    pub ttl: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +82,7 @@ pub struct RedisListRequest {
     pub key_raw: String,
     pub value: Option<String>,
     pub index: Option<i64>,
+    pub ttl: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +92,7 @@ pub struct RedisSetRequest {
     pub db: u32,
     pub key_raw: String,
     pub member: String,
+    pub ttl: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -197,6 +211,7 @@ pub async fn hash_set(
         &req.key_raw,
         &req.field,
         value,
+        req.ttl,
     )
     .await
     .map_err(AppError)?;
@@ -218,9 +233,16 @@ pub async fn list_push(
     Json(req): Json<RedisListRequest>,
 ) -> Result<Json<()>, AppError> {
     let value = req.value.as_deref().unwrap_or("");
-    dbx_core::redis_ops::redis_list_push_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, value)
-        .await
-        .map_err(AppError)?;
+    dbx_core::redis_ops::redis_list_push_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        value,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError)?;
     Ok(Json(()))
 }
 
@@ -251,9 +273,16 @@ pub async fn set_add(
     State(state): State<Arc<WebState>>,
     Json(req): Json<RedisSetRequest>,
 ) -> Result<Json<()>, AppError> {
-    dbx_core::redis_ops::redis_set_add_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, &req.member)
-        .await
-        .map_err(AppError)?;
+    dbx_core::redis_ops::redis_set_add_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.member,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError)?;
     Ok(Json(()))
 }
 
@@ -264,6 +293,21 @@ pub async fn set_remove(
     dbx_core::redis_ops::redis_set_remove_in_db_core(&state.app, &req.connection_id, req.db, &req.key_raw, &req.member)
         .await
         .map_err(AppError)?;
+    Ok(Json(()))
+}
+
+pub async fn zadd(State(state): State<Arc<WebState>>, Json(req): Json<RedisZaddRequest>) -> Result<Json<()>, AppError> {
+    dbx_core::redis_ops::redis_zadd_in_db_core(
+        &state.app,
+        &req.connection_id,
+        req.db,
+        &req.key_raw,
+        &req.member,
+        req.score,
+        req.ttl,
+    )
+    .await
+    .map_err(AppError)?;
     Ok(Json(()))
 }
 

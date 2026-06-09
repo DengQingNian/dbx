@@ -1151,16 +1151,23 @@ export async function redisHashSet(
   keyRaw: string,
   field: string,
   value: string,
+  ttl?: number,
 ): Promise<void> {
-  return invoke("redis_hash_set", { connectionId, db, keyRaw, field, value });
+  return invoke("redis_hash_set", { connectionId, db, keyRaw, field, value, ttl });
 }
 
 export async function redisHashDel(connectionId: string, db: number, keyRaw: string, field: string): Promise<void> {
   return invoke("redis_hash_del", { connectionId, db, keyRaw, field });
 }
 
-export async function redisListPush(connectionId: string, db: number, keyRaw: string, value: string): Promise<void> {
-  return invoke("redis_list_push", { connectionId, db, keyRaw, value });
+export async function redisListPush(
+  connectionId: string,
+  db: number,
+  keyRaw: string,
+  value: string,
+  ttl?: number,
+): Promise<void> {
+  return invoke("redis_list_push", { connectionId, db, keyRaw, value, ttl });
 }
 
 export async function redisListSet(
@@ -1177,8 +1184,14 @@ export async function redisListRemove(connectionId: string, db: number, keyRaw: 
   return invoke("redis_list_remove", { connectionId, db, keyRaw, index });
 }
 
-export async function redisSetAdd(connectionId: string, db: number, keyRaw: string, member: string): Promise<void> {
-  return invoke("redis_set_add", { connectionId, db, keyRaw, member });
+export async function redisSetAdd(
+  connectionId: string,
+  db: number,
+  keyRaw: string,
+  member: string,
+  ttl?: number,
+): Promise<void> {
+  return invoke("redis_set_add", { connectionId, db, keyRaw, member, ttl });
 }
 
 export async function redisSetRemove(connectionId: string, db: number, keyRaw: string, member: string): Promise<void> {
@@ -1191,8 +1204,9 @@ export async function redisZadd(
   keyRaw: string,
   member: string,
   score: number,
+  ttl?: number,
 ): Promise<void> {
-  return invoke("redis_zadd", { connectionId, db, keyRaw, member, score });
+  return invoke("redis_zadd", { connectionId, db, keyRaw, member, score, ttl });
 }
 
 export async function redisZrem(connectionId: string, db: number, keyRaw: string, member: string): Promise<void> {
