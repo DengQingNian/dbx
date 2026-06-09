@@ -114,6 +114,7 @@ const createKeyEntries = ref<CreateKeyEntry[]>([]);
 const createKeyRawMode = ref(false);
 const createKeyEntryId = ref("*");
 const jsonModuleAvailable = ref<boolean | null>(null);
+const checkingJsonModule = ref(false);
 let nextEntryId = 0;
 let searchRequestId = 0;
 let redisBrowserIsActive = true;
@@ -490,6 +491,7 @@ function resetCreateKeyForm() {
   createKeyRawMode.value = false;
   createKeyEntryId.value = "*";
   jsonModuleAvailable.value = null;
+  checkingJsonModule.value = false;
   resetEntries();
 }
 
@@ -497,14 +499,28 @@ function onCreateKeyTypeChange(type: any) {
   createKeyType.value = (type || "string") as RedisCreateKeyType;
   createKeyRawMode.value = false;
   jsonModuleAvailable.value = null;
+  checkingJsonModule.value = false;
   resetEntries();
   if (createKeyType.value === "json") {
-    api.redisCheckJsonModule(props.connectionId, props.db).then((ok) => {
-      jsonModuleAvailable.value = ok;
-      if (!ok) {
+    createKeyError.value = "";
+    checkingJsonModule.value = true;
+    api
+      .redisCheckJsonModule(props.connectionId, props.db)
+      .then((ok) => {
+        jsonModuleAvailable.value = ok;
+        if (!ok) {
+          createKeyError.value = t("redis.jsonModuleNotAvailable");
+        }
+      })
+      .catch(() => {
+        jsonModuleAvailable.value = false;
         createKeyError.value = t("redis.jsonModuleNotAvailable");
-      }
-    });
+      })
+      .finally(() => {
+        checkingJsonModule.value = false;
+      });
+  } else {
+    createKeyError.value = "";
   }
 }
 
@@ -1257,7 +1273,7 @@ defineExpose({ focusSearch });
             {{ t("dangerDialog.cancel") }}
           </Button>
           <Button
-            :disabled="creatingKey || (createKeyType === 'json' && jsonModuleAvailable === false)"
+            :disabled="creatingKey || checkingJsonModule || (createKeyType === 'json' && jsonModuleAvailable !== true)"
             @click="createRedisKey"
           >
             <Loader2 v-if="creatingKey" class="h-4 w-4 animate-spin" />

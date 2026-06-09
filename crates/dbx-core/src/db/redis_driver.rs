@@ -9,7 +9,6 @@ use redis::{
     Value as RedisRawValue,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tokio::sync::Mutex;
 
 const STREAM_ENTRY_LIMIT: usize = 100;
@@ -1296,9 +1295,18 @@ pub async fn check_json_module<C>(con: &mut C) -> Result<bool, String>
 where
     C: ConnectionLike + Send + Sync + Unpin,
 {
-    let modules: Vec<HashMap<String, String>> =
-        redis::cmd("MODULE").arg("LIST").query_async(con).await.map_err(|e| e.to_string())?;
-    Ok(modules.iter().any(|m| m.get("name").is_some_and(|n| n.eq_ignore_ascii_case("ReJSON"))))
+    let raw: RedisRawValue = redis::cmd("MODULE").arg("LIST").query_async(con).await.map_err(|e| e.to_string())?;
+    Ok(match raw {
+        RedisRawValue::Array(modules) => modules.iter().any(|module| {
+            if let RedisRawValue::Array(kvs) = module {
+                kvs.get(1)
+                    .is_some_and(|v| matches!(v, RedisRawValue::BulkString(n) if n.eq_ignore_ascii_case(b"ReJSON")))
+            } else {
+                false
+            }
+        }),
+        _ => false,
+    })
 }
 
 pub async fn set_ttl<C>(con: &mut C, key: &[u8], ttl: i64) -> Result<(), String>
