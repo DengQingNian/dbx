@@ -1702,11 +1702,13 @@ mod tests {
             XlsxWorksheetData {
                 sheet_name: Some("First".to_string()),
                 columns: vec!["id".to_string()],
+                column_types: vec![],
                 rows: vec![vec![serde_json::json!(1)]],
             },
             XlsxWorksheetData {
                 sheet_name: Some("Second".to_string()),
                 columns: vec!["name".to_string()],
+                column_types: vec![],
                 rows: vec![vec![serde_json::json!("Ada")]],
             },
         ])
