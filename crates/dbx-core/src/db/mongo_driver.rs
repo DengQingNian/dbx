@@ -1341,8 +1341,10 @@ fn bson_to_json(bson: &Bson) -> serde_json::Value {
 
 fn bson_document_field_to_json(key: &str, bson: &Bson) -> serde_json::Value {
     if key == "_id" {
-        if let Bson::Int64(value) = bson {
-            return serde_json::json!({ "$numberLong": value.to_string() });
+        match bson {
+            Bson::Int64(value) => return serde_json::json!({ "$numberLong": value.to_string() }),
+            Bson::ObjectId(value) => return serde_json::json!({ "$oid": value.to_hex() }),
+            _ => {}
         }
     }
     bson_to_json(bson)
@@ -1868,6 +1870,16 @@ mod tests {
 
         assert_eq!(value["_id"], serde_json::json!({ "$numberLong": "2048938405781032962" }));
         assert_eq!(value["snowflake"], serde_json::json!("2048938405781032962"));
+    }
+
+    #[test]
+    fn bson_to_json_preserves_object_id_type_for_updates() {
+        let oid = ObjectId::parse_str("507f1f77bcf86cd799439011").unwrap();
+        let value = bson_to_json(&Bson::Document(doc! {
+            "_id": Bson::ObjectId(oid),
+        }));
+
+        assert_eq!(value["_id"], serde_json::json!({ "$oid": "507f1f77bcf86cd799439011" }));
     }
 
     #[test]
