@@ -86,6 +86,7 @@ import type {
   TableImportRequest,
   TableImportSummary,
   TableImportProgress,
+  DatabaseBackupSnapshot,
   DatabaseExportRequest,
   ExportProgress,
   TableExportRequest,
@@ -524,6 +525,10 @@ export async function openSavedSqlStorageDir(_dir?: string | null): Promise<void
 
 export async function revealPathInFileManager(_path: string): Promise<void> {
   throw new Error("Reveal in file manager is only available in the desktop app.");
+}
+
+export async function deleteDatabaseBackupFiles(_paths: string[]): Promise<number> {
+  throw new Error("Database backup file management is only available in the desktop app.");
 }
 
 export async function isSqliteDatabaseFile(_path: string): Promise<boolean> {
@@ -1560,6 +1565,10 @@ export async function cancelTableImport(importId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 // Database Export
 // ---------------------------------------------------------------------------
+
+export async function beginDatabaseBackupSnapshot(_connectionId: string, _database: string): Promise<DatabaseBackupSnapshot> {
+  throw new Error("Consistent database backup snapshots are only available in the desktop app.");
+}
 
 export async function exportDatabaseSql(request: DatabaseExportRequest, onProgress: (progress: ExportProgress) => void): Promise<void> {
   // 1. POST to start the export

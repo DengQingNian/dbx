@@ -31,6 +31,7 @@ import { useTauriEvents } from "@/composables/useTauriEvents";
 import { useCloseActionPrompt, type AppCloseAction, type AppCloseRequestOptions } from "@/composables/useCloseActionPrompt";
 import { useVisibilityChange } from "@/composables/useVisibilityChange";
 import { useWebDavAutoUpload } from "@/composables/useWebDavAutoUpload";
+import { useScheduledDatabaseBackups } from "@/composables/useScheduledDatabaseBackups";
 import { shouldDrawDesktopWindowFrame } from "@/composables/useWindowControls";
 import "@/i18n";
 import { translateBackendError } from "@/i18n/backend-errors";
@@ -293,6 +294,7 @@ const { setupTauriListeners, cleanupTauriListeners } = useTauriEvents({
 const { showCloseActionPrompt, chooseQuit, chooseMinimize, cancelCloseActionPrompt, performCloseAction, setupCloseActionPromptListener, cleanupCloseActionPromptListener } = useCloseActionPrompt({ requestClose: requestAppClose });
 useVisibilityChange();
 useWebDavAutoUpload();
+useScheduledDatabaseBackups({ scheduler: true });
 
 const appVersion = ref("");
 const isClassicLayout = computed(() => settingsStore.editorSettings.appLayout === "classic");
@@ -306,6 +308,15 @@ function openSettings(initialTab = "appearance", initialSection?: string) {
   }
   activateSettingsPage();
 }
+
+watch(
+  () => settingsStore.settingsNavigationRequest,
+  (request) => {
+    if (!request) return;
+    openSettings(request.tab, request.section);
+    settingsStore.clearSettingsNavigationRequest(request.id);
+  },
+);
 
 function activateSettingsPage() {
   settingsPageTabOpen.value = true;

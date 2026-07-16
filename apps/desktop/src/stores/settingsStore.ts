@@ -826,8 +826,15 @@ function saveEditorSettings(settings: EditorSettings) {
   void api.saveEditorSettings(settings).catch(() => {});
 }
 
+export interface SettingsNavigationRequest {
+  id: number;
+  tab: string;
+  section?: string;
+}
+
 export const useSettingsStore = defineStore("settings", () => {
   const settingsPageActive = ref(false);
+  const settingsNavigationRequest = ref<SettingsNavigationRequest | null>(null);
   const activeModel = ref<{ configId: string; modelId: string } | null>(null);
   const isAiConfigLoaded = ref(false);
   const aiConfigs = ref<AiConfigItem[]>([]);
@@ -836,6 +843,18 @@ export const useSettingsStore = defineStore("settings", () => {
   const isEditorSettingsLoaded = ref(false);
 
   const editorSettings = ref<EditorSettings>(normalizeEditorSettings({}));
+
+  function requestSettingsNavigation(tab: string, section?: string) {
+    settingsNavigationRequest.value = {
+      id: Date.now(),
+      tab,
+      section,
+    };
+  }
+
+  function clearSettingsNavigationRequest(id: number) {
+    if (settingsNavigationRequest.value?.id === id) settingsNavigationRequest.value = null;
+  }
 
   async function initEditorSettings() {
     if (isEditorSettingsLoaded.value) return;
@@ -1132,6 +1151,9 @@ export const useSettingsStore = defineStore("settings", () => {
 
   return {
     settingsPageActive,
+    settingsNavigationRequest,
+    requestSettingsNavigation,
+    clearSettingsNavigationRequest,
     activeModel,
     isAiConfigLoaded,
     aiConfigs,

@@ -2894,6 +2894,41 @@ pub async fn begin_manual_transaction(
     database: &str,
     schema: Option<&str>,
 ) -> Result<String, String> {
+    begin_transaction_session(state, connection_id, database, schema, false).await
+}
+
+/// Start a read-only, repeatable snapshot for a database backup.
+pub async fn begin_database_backup_snapshot(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+) -> Result<String, String> {
+    begin_transaction_session(state, connection_id, database, None, true).await
+}
+
+fn postgres_transaction_begin_sql(consistent_snapshot: bool) -> &'static str {
+    if consistent_snapshot {
+        "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
+    } else {
+        "BEGIN"
+    }
+}
+
+fn mysql_transaction_begin_sql(consistent_snapshot: bool) -> &'static str {
+    if consistent_snapshot {
+        "START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY"
+    } else {
+        "START TRANSACTION"
+    }
+}
+
+async fn begin_transaction_session(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    schema: Option<&str>,
+    consistent_snapshot: bool,
+) -> Result<String, String> {
     let pool_key = if database.is_empty() {
         connection_id.to_string()
     } else {
@@ -2918,7 +2953,8 @@ pub async fn begin_manual_transaction(
     let txn_conn = match pool_handle {
         TxnPoolHandle::Postgres(pg_pool) => {
             let conn = pg_pool.get().await.map_err(|e| format!("Failed to get Postgres connection: {e}"))?;
-            conn.execute("BEGIN", &[]).await.map_err(|e| format!("BEGIN failed: {e}"))?;
+            let begin_sql = postgres_transaction_begin_sql(consistent_snapshot);
+            conn.execute(begin_sql, &[]).await.map_err(|e| format!("BEGIN failed: {e}"))?;
             if let Some(schema) = schema {
                 conn.execute(&format!("SET LOCAL search_path TO {}", db::postgres::pg_quote_ident(schema)), &[])
                     .await
@@ -2928,7 +2964,8 @@ pub async fn begin_manual_transaction(
         }
         TxnPoolHandle::Mysql(mysql_pool) => {
             let mut conn = mysql_pool.get_conn().await.map_err(|e| format!("Failed to get MySQL connection: {e}"))?;
-            conn.query_drop("START TRANSACTION").await.map_err(|e| format!("START TRANSACTION failed: {e}"))?;
+            let begin_sql = mysql_transaction_begin_sql(consistent_snapshot);
+            conn.query_drop(begin_sql).await.map_err(|e| format!("START TRANSACTION failed: {e}"))?;
             TxnConnection::Mysql(conn)
         }
     };
@@ -3068,6 +3105,176 @@ pub async fn execute_in_manual_transaction(
     }
 
     Ok(results)
+}
+
+/// Stream a read query through an existing transaction without materializing
+/// the whole result set. The callback runs once per batch while the same held
+/// connection and transaction snapshot remain active.
+pub async fn stream_rows_in_manual_transaction<F>(
+    state: &AppState,
+    txn_session_id: &str,
+    sql: &str,
+    batch_size: usize,
+    mut on_batch: F,
+) -> Result<u64, String>
+where
+    F: FnMut(Vec<Vec<serde_json::Value>>) -> Result<(), String> + Send,
+{
+    const TXN_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+    let expired_connection = {
+        let mut sessions = state.transaction_sessions.write().await;
+        let Some(session) = sessions.get_mut(txn_session_id) else {
+            return Err(
+                "Transaction session not found or expired; it may have been auto-rolled back due to inactivity"
+                    .to_string(),
+            );
+        };
+        if session.busy {
+            return Err("Transaction session is already executing".to_string());
+        }
+        if session.last_activity.elapsed() > TXN_IDLE_TIMEOUT {
+            Some(sessions.remove(txn_session_id).expect("session exists").connection)
+        } else {
+            session.busy = true;
+            session.last_activity = std::time::Instant::now();
+            None
+        }
+    };
+    if let Some(connection) = expired_connection {
+        let mut conn = connection.lock().await;
+        let _ = rollback_manual_txn_connection(&mut conn).await;
+        return Err("Transaction was auto-rolled back due to 5 minutes of inactivity".to_string());
+    }
+
+    let connection = {
+        let sessions = state.transaction_sessions.read().await;
+        sessions
+            .get(txn_session_id)
+            .map(|session| Arc::clone(&session.connection))
+            .ok_or("Transaction session not found or expired; it may have been auto-rolled back due to inactivity")?
+    };
+    let batch_size = batch_size.max(1);
+    let mut conn = connection.lock().await;
+    let stream_result = match &mut *conn {
+        TxnConnection::Postgres(conn) => {
+            let stmt = conn.prepare_cached(sql).await.map_err(|e| format!("Prepare failed: {e}"));
+            match stmt {
+                Ok(stmt) => {
+                    let column_types: Vec<String> =
+                        stmt.columns().iter().map(|column| column.type_().name().to_string()).collect();
+                    let params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
+                    match conn.query_raw(&stmt, params).await {
+                        Ok(stream) => {
+                            tokio::pin!(stream);
+                            let mut batch = Vec::with_capacity(batch_size);
+                            let mut total_rows = 0_u64;
+                            let mut error = None;
+                            while let Some(row_result) = stream.next().await {
+                                match row_result {
+                                    Ok(row) => {
+                                        let values = (0..row.columns().len())
+                                            .map(|index| {
+                                                db::postgres::pg_value_to_json(
+                                                    &row,
+                                                    index,
+                                                    column_types.get(index).map(String::as_str).unwrap_or(""),
+                                                )
+                                            })
+                                            .collect();
+                                        batch.push(values);
+                                        total_rows += 1;
+                                        if batch.len() >= batch_size {
+                                            if let Err(err) = on_batch(std::mem::take(&mut batch)) {
+                                                error = Some(err);
+                                                break;
+                                            }
+                                            batch = Vec::with_capacity(batch_size);
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error = Some(format!("Query failed: {err}"));
+                                        break;
+                                    }
+                                }
+                            }
+                            if error.is_none() && !batch.is_empty() {
+                                if let Err(err) = on_batch(batch) {
+                                    error = Some(err);
+                                }
+                            }
+                            error.map_or(Ok(total_rows), Err)
+                        }
+                        Err(err) => Err(format!("Query failed: {err}")),
+                    }
+                }
+                Err(err) => Err(err),
+            }
+        }
+        TxnConnection::Mysql(conn) => match conn.query_iter(sql).await {
+            Ok(mut result) => match result.stream::<mysql_async::Row>().await {
+                Ok(Some(mut stream)) => {
+                    let mut batch = Vec::with_capacity(batch_size);
+                    let mut total_rows = 0_u64;
+                    let mut error = None;
+                    while let Some(row_result) = stream.next().await {
+                        match row_result {
+                            Ok(row) => {
+                                batch.push(
+                                    (0..row.len()).map(|index| db::mysql::mysql_value_to_json(&row, index)).collect(),
+                                );
+                                total_rows += 1;
+                                if batch.len() >= batch_size {
+                                    if let Err(err) = on_batch(std::mem::take(&mut batch)) {
+                                        error = Some(err);
+                                        break;
+                                    }
+                                    batch = Vec::with_capacity(batch_size);
+                                }
+                            }
+                            Err(err) => {
+                                error = Some(format!("Query failed: {err}"));
+                                break;
+                            }
+                        }
+                    }
+                    if error.is_none() && !batch.is_empty() {
+                        if let Err(err) = on_batch(batch) {
+                            error = Some(err);
+                        }
+                    }
+                    error.map_or(Ok(total_rows), Err)
+                }
+                Ok(None) => Err("Empty result set stream".to_string()),
+                Err(err) => Err(format!("Query failed: {err}")),
+            },
+            Err(err) => Err(format!("Query failed: {err}")),
+        },
+    };
+
+    if let Err(err) = &stream_result {
+        let should_rollback = state.transaction_sessions.write().await.remove(txn_session_id).is_some();
+        if should_rollback {
+            let _ = rollback_manual_txn_connection(&mut conn).await;
+        }
+        return Err(format!("{err}. Transaction was auto-rolled back."));
+    }
+    drop(conn);
+
+    let should_watch = {
+        let mut sessions = state.transaction_sessions.write().await;
+        if let Some(session) = sessions.get_mut(txn_session_id) {
+            session.busy = false;
+            session.last_activity = std::time::Instant::now();
+            true
+        } else {
+            false
+        }
+    };
+    if should_watch {
+        spawn_txn_idle_watcher(state, txn_session_id.to_string());
+    }
+    stream_result
 }
 
 async fn rollback_manual_txn_connection(conn: &mut TxnConnection) -> Result<(), String> {
@@ -4731,5 +4938,11 @@ mod tests {
     fn query_execution_options_use_transaction_some_false_is_preserved() {
         let opts = QueryExecutionOptions { use_transaction: Some(false), ..Default::default() };
         assert_eq!(opts.use_transaction, Some(false));
+    }
+
+    #[test]
+    fn database_backup_transactions_request_consistent_read_only_snapshots() {
+        assert_eq!(postgres_transaction_begin_sql(true), "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        assert_eq!(mysql_transaction_begin_sql(true), "START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY");
     }
 }

@@ -4325,6 +4325,10 @@ function openAllDatabasesExport() {
   };
 }
 
+function openScheduledBackups() {
+  settingsStore.requestSettingsNavigation("backups");
+}
+
 function openTableImport() {
   const node = props.node;
   if (!node.connectionId || !node.database) return;
@@ -5297,6 +5301,9 @@ function treeItemMenuItems(): ContextMenuItem[] {
     }
     if (canExportAllDatabases.value) {
       items.push({ label: t("contextMenu.exportAllDatabases"), action: openAllDatabasesExport, icon: Upload });
+      if (isTauriRuntime()) {
+        items.push({ label: t("databaseBackup.title"), action: openScheduledBackups, icon: CalendarClock });
+      }
     }
     if (canCreateDatabase.value) {
       items.push({
