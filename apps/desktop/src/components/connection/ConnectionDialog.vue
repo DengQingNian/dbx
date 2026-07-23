@@ -48,6 +48,7 @@ import { appendConnectionErrorHints, isJdbcMissingRuntimeDependencyError } from 
 import { postgresTlsModeForForm } from "@/lib/connection/postgresTlsMode";
 import { buildMqKafkaConnectionExtra, mqKafkaConnectionTarget, resolveMqKafkaConnectionSource, type MqKafkaConnectionSource } from "@/lib/connection/mqKafkaConnection";
 import { assertCompleteDatabaseCategories, databaseSelectionForCategory } from "@/lib/connection/databaseCategoryOptions";
+import { loadConnectionPickerView, saveConnectionPickerView, type DbPickerView } from "@/lib/connection/connectionPickerViewPreference";
 import { normalizeRocketmqNamesrvAddr } from "@/lib/connection/rocketmqNamesrv";
 import { normalizeRabbitmqAddresses } from "@/lib/connection/rabbitmqAddresses";
 import { detectMqUiAuthKind, isMqAuthKindAllowedForSystem, type MqUiAuthKind } from "@/lib/connection/mqAuth";
@@ -98,7 +99,6 @@ type DbOption = { value: string; label: string };
 type DbCategoryKey = "sql" | "analytics" | "domestic" | "lightweight" | "document" | "graph_ai" | "timeseries" | "mq" | "registry_config";
 type DbCategory = { key: DbCategoryKey; title: string; options: DbOption[] };
 type DialogStep = "select" | "config";
-type DbPickerView = "icon" | "list";
 export type ConfigTab = "connection" | "advanced" | "tls" | "transport";
 type ProductionScope = "connection" | "databases";
 type MqTokenSigningMode = "none" | "hs256" | "rs256";
@@ -508,7 +508,7 @@ const hiveJaasConfigPath = ref("");
 const hiveUseSubjectCredsOnlyFalse = ref(false);
 const hiveExtraJavaOptions = ref("");
 const dialogStep = ref<DialogStep>("select");
-const dbPickerView = ref<DbPickerView>("icon");
+const dbPickerView = ref<DbPickerView>(loadConnectionPickerView());
 const dbSearchQuery = ref("");
 const selectedDbCategory = ref<DbCategoryKey>("sql");
 const configTab = ref<ConfigTab>("connection");
@@ -2367,6 +2367,11 @@ function selectDbCategory(category: DbCategoryKey) {
   if (nextSelection && nextSelection !== selectedType.value) onDbTypeChange(nextSelection);
 }
 
+function selectDbPickerView(view: DbPickerView) {
+  dbPickerView.value = view;
+  saveConnectionPickerView(view);
+}
+
 function dbCategoryForOption(value: string): DbCategoryKey | undefined {
   return dbCategories.value.find((category) => category.options.some((option) => option.value === value))?.key;
 }
@@ -2723,6 +2728,18 @@ function backToDatabasePicker() {
   if (category) selectedDbCategory.value = category;
   dialogStep.value = "select";
   resetTestState();
+}
+
+function handleDialogOpenAutoFocus(event: Event) {
+  event.preventDefault();
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  event.currentTarget.querySelector<HTMLElement>("[data-connection-dialog-title]")?.focus({ preventScroll: true });
+}
+
+function handleDialogEscape(event: KeyboardEvent) {
+  if (dialogStep.value !== "config" || editingId.value) return;
+  event.preventDefault();
+  backToDatabasePicker();
 }
 
 watch(customDriverName, (value) => {
@@ -3758,7 +3775,6 @@ function resetForm() {
   connectionUrlInput.value = "";
   appliedConnectionUrlInput.value = "";
   dialogStep.value = "select";
-  dbPickerView.value = "icon";
   dbSearchQuery.value = "";
   selectedDbCategory.value = "sql";
   configTab.value = "connection";
@@ -4445,9 +4461,9 @@ function openExternalUrl(url: string) {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="connection-dialog-content" :class="connectionDialogContentClass" :data-wide="shouldUseWideConnectionDialog ? 'true' : undefined" @interact-outside.prevent>
+    <DialogContent class="connection-dialog-content" :class="connectionDialogContentClass" :data-wide="shouldUseWideConnectionDialog ? 'true' : undefined" @interact-outside.prevent @open-auto-focus="handleDialogOpenAutoFocus" @escape-key-down="handleDialogEscape">
       <DialogHeader>
-        <DialogTitle>{{ editingId ? t("connection.editTitle") : t("connection.title") }}</DialogTitle>
+        <DialogTitle data-connection-dialog-title tabindex="-1">{{ editingId ? t("connection.editTitle") : t("connection.title") }}</DialogTitle>
       </DialogHeader>
 
       <template v-if="dialogStep === 'select'">
@@ -4455,10 +4471,28 @@ function openExternalUrl(url: string) {
           <div class="flex flex-col gap-3 p-0.5 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-2">
               <div class="flex shrink-0 rounded-lg border bg-muted/40 p-0.5">
-                <Button type="button" size="icon-sm" :variant="dbPickerView === 'icon' ? 'secondary' : 'ghost'" :title="t('connection.iconView')" :aria-label="t('connection.iconView')" @click="dbPickerView = 'icon'">
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  :class="dbPickerView === 'icon' ? 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground' : undefined"
+                  :title="t('connection.iconView')"
+                  :aria-label="t('connection.iconView')"
+                  :aria-pressed="dbPickerView === 'icon'"
+                  @click="selectDbPickerView('icon')"
+                >
                   <Grid3X3 class="h-3.5 w-3.5" />
                 </Button>
-                <Button type="button" size="icon-sm" :variant="dbPickerView === 'list' ? 'secondary' : 'ghost'" :title="t('connection.listView')" :aria-label="t('connection.listView')" @click="dbPickerView = 'list'">
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  :class="dbPickerView === 'list' ? 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground' : undefined"
+                  :title="t('connection.listView')"
+                  :aria-label="t('connection.listView')"
+                  :aria-pressed="dbPickerView === 'list'"
+                  @click="selectDbPickerView('list')"
+                >
                   <List class="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -4474,13 +4508,13 @@ function openExternalUrl(url: string) {
           </div>
 
           <div class="min-h-0 flex flex-1 flex-col gap-3 overflow-hidden sm:flex-row sm:gap-4">
-            <nav class="flex shrink-0 gap-1 overflow-x-auto border-b pb-2 sm:w-40 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r sm:pb-0 sm:pr-3" :aria-label="t('connection.databaseCategories')">
+            <nav data-connection-category-nav class="flex shrink-0 gap-1 overflow-x-auto border-b px-0.5 pt-0.5 pb-2.5 sm:w-40 sm:flex-col sm:overflow-y-auto sm:border-b-0 sm:border-r sm:py-0.5 sm:pr-3.5" :aria-label="t('connection.databaseCategories')">
               <button
                 v-for="category in dbCategories"
                 :key="category.key"
                 type="button"
-                class="shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm transition hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-full"
-                :class="!isDbSearchActive && selectedDbCategory === category.key ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground'"
+                class="shrink-0 whitespace-nowrap rounded-[4px] px-3 py-2 text-left text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-full"
+                :class="!isDbSearchActive && selectedDbCategory === category.key ? 'bg-primary/10 font-medium text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted/70'"
                 :aria-current="!isDbSearchActive && selectedDbCategory === category.key ? 'page' : undefined"
                 @click="selectDbCategory(category.key)"
               >
@@ -4499,7 +4533,7 @@ function openExternalUrl(url: string) {
                     v-for="opt in category.options"
                     :key="opt.value"
                     type="button"
-                    class="connection-db-picker-option group flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl border bg-background/70 p-3 text-center transition hover:border-primary/40 hover:bg-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    class="connection-db-picker-option group flex min-h-24 flex-col items-center justify-center gap-2 rounded-[4px] border bg-background/70 p-3 text-center transition hover:border-primary/40 hover:bg-muted/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     :class="selectedType === opt.value ? 'connection-db-picker-option--selected shadow-sm' : 'border-border'"
                     :aria-pressed="selectedType === opt.value"
                     @click="onDbTypeChange(opt.value)"
@@ -4517,7 +4551,7 @@ function openExternalUrl(url: string) {
                     v-for="opt in category.options"
                     :key="opt.value"
                     type="button"
-                    class="connection-db-picker-option flex items-center gap-3 rounded-lg border bg-background px-3 py-2 text-left transition hover:border-primary/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    class="connection-db-picker-option flex items-center gap-3 rounded-[4px] border bg-background px-3 py-2 text-left transition hover:border-primary/40 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     :class="selectedType === opt.value ? 'connection-db-picker-option--selected' : 'border-border'"
                     :aria-pressed="selectedType === opt.value"
                     @click="onDbTypeChange(opt.value)"
@@ -4550,7 +4584,7 @@ function openExternalUrl(url: string) {
       </template>
 
       <template v-else>
-        <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+        <div class="connection-config-step flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
           <Tabs v-model="configTab" class="flex min-h-0 flex-1 flex-col">
             <div class="flex items-center justify-between border-b pb-2">
               <TabsList>
@@ -6790,6 +6824,10 @@ function openExternalUrl(url: string) {
 
 .connection-db-picker-option--selected:hover {
   background-color: rgba(23, 23, 23, 0.12);
+}
+
+.connection-config-step :is([data-slot="input"], [data-slot="select-trigger"], [data-slot="tabs-list"], [data-slot="tabs-trigger"], textarea) {
+  border-radius: var(--dbx-radius-fixed-4, 4px);
 }
 
 .dark .connection-db-picker-option--selected {
