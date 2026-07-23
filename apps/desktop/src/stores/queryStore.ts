@@ -42,7 +42,7 @@ import { connectionQueryExecutionSchema, connectionUsesDatabaseObjectTreeMode, e
 import { frontendQueryTimeoutSecsForSql, queryTimeoutSecsForConnection } from "@/lib/sql/queryTimeout";
 import { queryResultNameFromPreamble, queryResultSourceLabel } from "@/lib/sql/queryResultSource";
 import { sortDataGridRowIndexes, type DataGridSortDirection } from "@/lib/dataGrid/dataGridSort";
-import { normalizeResultPageSize } from "@/lib/dataGrid/paginationPageSize";
+import { MAX_RESULT_PAGE_SIZE, normalizeResultPageSize } from "@/lib/dataGrid/paginationPageSize";
 import { executableStatementRanges, splitSqlStatementRanges } from "@/lib/sql/sqlStatementRanges";
 import { externalSqlFileDisplayTitles, normalizeExternalSqlPath } from "@/lib/sql/sqlFileOpen";
 import { clearDataGridPendingSnapshotsForTab } from "@/composables/useDataGridEditor";
@@ -129,6 +129,14 @@ function markQueryResultRowsRaw(result: QueryResult): QueryResult {
 function markQueryResultsRowsRaw(results: QueryResult[]): QueryResult[] {
   for (const result of results) markQueryResultRowsRaw(result);
   return results;
+}
+
+function exactTotalFromIncompletePage(result: QueryResult, pageLimit: number | undefined, pageOffset: number | undefined, useAgentResultSession: boolean | undefined): number | undefined {
+  if (typeof pageLimit !== "number" || result.rows.length >= pageLimit || result.truncated === true) return undefined;
+  // Cursor-backed drivers must explicitly confirm exhaustion; an omitted
+  // has_more value may come from an older driver or an exhausted row cap.
+  if (useAgentResultSession && result.has_more !== false) return undefined;
+  return (pageOffset ?? 0) + result.rows.length;
 }
 
 function appendQueryResultSegment(previous: QueryResult, segment: QueryResult, maxRows: number): QueryResult {
@@ -2814,6 +2822,7 @@ export const useQueryStore = defineStore("query", () => {
     result: QueryResult;
     pageLimit?: number;
     pageOffset?: number;
+    useAgentResultSession?: boolean;
     executionId: string;
     traceId: string;
     elapsed: () => string;
@@ -2824,8 +2833,9 @@ export const useQueryStore = defineStore("query", () => {
       setQueryTotalRowCountIfCurrent(options.tabId, options.executionId, options.result, undefined);
       return;
     }
-    if (typeof options.pageLimit === "number" && resultRowCount < options.pageLimit) {
-      setQueryTotalRowCountIfCurrent(options.tabId, options.executionId, options.result, (options.pageOffset ?? 0) + resultRowCount);
+    const exactIncompletePageTotal = exactTotalFromIncompletePage(options.result, options.pageLimit, options.pageOffset, options.useAgentResultSession);
+    if (typeof exactIncompletePageTotal === "number") {
+      setQueryTotalRowCountIfCurrent(options.tabId, options.executionId, options.result, exactIncompletePageTotal);
       return;
     }
 
@@ -3461,6 +3471,9 @@ export const useQueryStore = defineStore("query", () => {
           ...(typeof pageLimit === "number"
             ? useAgentResultSession
               ? {
+                  // Agent cursors apply maxRows cumulatively across fetched pages.
+                  // Keep multi-page navigation available without allowing unbounded reads.
+                  maxRows: MAX_RESULT_PAGE_SIZE,
                   fetchSize: pageLimit,
                   pageSize: pageLimit,
                   resultSessionId: options?.pagination?.sessionId,
@@ -3547,7 +3560,7 @@ export const useQueryStore = defineStore("query", () => {
           current.resultTotalRowCount = undefined;
         }
         const resultRowCount = current.result?.rows.length ?? 0;
-        const totalKnownFromIncompletePage = !!current.result && typeof pageLimit === "number" && resultRowCount < pageLimit;
+        const totalKnownFromIncompletePage = !!current.result && typeof exactTotalFromIncompletePage(current.result, pageLimit, pageOffset, useAgentResultSession) === "number";
         const dataCountTarget =
           current.mode === "data"
             ? (() => {
@@ -3594,6 +3607,7 @@ export const useQueryStore = defineStore("query", () => {
             result: current.result,
             pageLimit,
             pageOffset,
+            useAgentResultSession,
             executionId,
             traceId,
             elapsed,
