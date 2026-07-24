@@ -2527,8 +2527,10 @@ export interface QueryResultExportRequest {
   databaseType: DatabaseType;
   useAgentCursor: boolean;
   filePath: string;
-  format: "csv" | "xlsx" | "txt";
+  format: "csv" | "xlsx" | "txt" | "sql";
   includeSqlSheet?: boolean;
+  exportTableName?: string;
+  exportColumnTypes?: Array<string | null | undefined>;
   pageSize: number;
   rowLimit?: number | null;
   totalRows?: number | null;
