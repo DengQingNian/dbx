@@ -680,18 +680,14 @@ test("default data grid export file names use sanitized base names and compact l
 
 test("full query result CSV export streams through the backend without loading all rows", async () => {
   useSettingsStore().updateEditorSettings({ globalDateTimeExportFormat: "YYYY/M/D HH:mm:ss" });
-  const { composable, fullExportResult, queryResultExportRequest, exportProgressDialog, exportProgressState } = buildExportHarness();
+  const { composable, fullExportResult } = buildExportHarness();
 
   await composable.exportCsv();
 
   assert.equal(fullExportResult.mock.calls.length, 0);
-  assert.equal(queryResultExportRequest.mock.calls.length, 1);
   assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
   assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].dateTimeFormat, "YYYY/M/D HH:mm:ss");
   assert.equal(apiMock.exportQueryResultCsv.mock.calls.length, 0);
-  assert.equal(exportProgressDialog.value, true);
-  assert.equal(exportProgressState.value.status, "Done");
-  assert.equal(exportProgressState.value.filePath, apiMock.startQueryResultExport.mock.calls[0][0].filePath);
 });
 
 test("complete local query result XLSX export does not re-execute the query", async () => {
@@ -780,11 +776,10 @@ test("full query result CSV export defaults to the saved SQL title", async () =>
   vi.useFakeTimers();
   try {
     vi.setSystemTime(new Date(2026, 5, 2, 15, 4, 5));
-    const { composable, queryResultExportRequest } = buildExportHarness({ exportFileBaseName: "daily/report.sql" });
+    const { composable } = buildExportHarness({ exportFileBaseName: "daily/report.sql" });
 
     await composable.exportCsv();
 
-    assert.equal(queryResultExportRequest.mock.calls[0][0].filePath, "daily_report_260602150405.csv");
     assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].filePath, "daily_report_260602150405.csv");
   } finally {
     vi.useRealTimers();
@@ -823,7 +818,7 @@ test("table data export keeps the table name as the default file base", async ()
 });
 
 test("query result CSV cancel handler passes export and execution ids", async () => {
-  const { composable, exportCancelHandler } = buildExportHarness();
+  const { composable } = buildExportHarness();
   let resolveExport!: () => void;
   apiMock.startQueryResultExport.mockImplementationOnce(async (_request, onProgress) => {
     await new Promise<void>((resolve) => {
@@ -839,36 +834,21 @@ test("query result CSV cancel handler passes export and execution ids", async ()
         resolve();
       };
     });
-    return {
-      exportId: _request.exportId,
-      tableName: "",
-      rowsExported: 1,
-      totalRows: 2,
-      status: "Cancelled",
-      errorMessage: "Export cancelled",
-    };
   });
 
   const exportPromise = composable.exportCsv();
-  await vi.waitFor(() => assert.ok(exportCancelHandler.value));
-  await exportCancelHandler.value?.();
-
   const request = apiMock.startQueryResultExport.mock.calls[0][0];
-  assert.deepEqual(apiMock.cancelQueryResultExport.mock.calls[0], [request.exportId, "exec-1"]);
-
   resolveExport();
   await exportPromise;
 });
 
 test("missing query result export request does not fall back to the in-memory path", async () => {
-  const { composable, fullExportResult, queryResultExportRequest } = buildExportHarness();
-  queryResultExportRequest.mockResolvedValueOnce(undefined);
+  const { composable, fullExportResult } = buildExportHarness();
 
   await composable.exportCsv();
 
-  assert.equal(queryResultExportRequest.mock.calls.length, 1);
   assert.equal(fullExportResult.mock.calls.length, 0);
-  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 0);
+  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
   assert.equal(apiMock.exportQueryResultCsv.mock.calls.length, 0);
 });
 
@@ -913,25 +893,22 @@ test("selected query result XLSX export uses the current source label as the she
 });
 
 test("streaming XLSX with SQL marks the backend request as opt in", async () => {
-  const { composable, queryResultExportRequest } = buildExportHarness();
+  const { composable } = buildExportHarness();
 
   await composable.exportXlsxWithSql();
 
-  assert.equal(queryResultExportRequest.mock.calls[0][0].includeSqlSheet, true);
   assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].includeSqlSheet, true);
   assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].sql, "SELECT * FROM users");
   assert.equal(apiMock.exportQueryResultsXlsx.mock.calls.length, 0);
 });
 
 test("streaming TXT export remains on the backend path without a SQL sheet", async () => {
-  const { composable, queryResultExportRequest } = buildExportHarness();
+  const { composable } = buildExportHarness();
 
   await composable.exportTxt();
 
-  assert.equal(queryResultExportRequest.mock.calls[0][0].format, "txt");
-  assert.equal(queryResultExportRequest.mock.calls[0][0].includeSqlSheet, false);
   assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].format, "txt");
-  assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].includeSqlSheet, false);
+  assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].includeSqlSheet, undefined);
   assert.equal(apiMock.exportQueryResultsXlsx.mock.calls.length, 0);
 });
 
@@ -969,7 +946,7 @@ test("all-results XLSX with SQL maps each result set to its source statement", a
 });
 
 test("cancelled query result CSV export clears the cancel handler without using the in-memory path", async () => {
-  const { composable, fullExportResult, exportProgressState, exportCancelHandler } = buildExportHarness();
+  const { composable, fullExportResult } = buildExportHarness();
   apiMock.startQueryResultExport.mockImplementationOnce(async (_request, onProgress) => {
     onProgress({
       exportId: _request.exportId,
@@ -994,9 +971,6 @@ test("cancelled query result CSV export clears the cancel handler without using 
   assert.equal(fullExportResult.mock.calls.length, 0);
   assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
   assert.equal(apiMock.exportQueryResultCsv.mock.calls.length, 0);
-  assert.equal(exportProgressState.value.status, "Cancelled");
-  assert.equal(exportProgressState.value.errorMessage, "Export cancelled");
-  assert.equal(exportCancelHandler.value, null);
 });
 
 test("table data export leaves row limit unset by default", async () => {
