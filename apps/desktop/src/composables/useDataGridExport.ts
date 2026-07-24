@@ -1455,7 +1455,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
           };
 
           registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
-          addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
+          addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath, exportId);
 
           try {
             await api.startQueryResultExport(request, (progress) => {
