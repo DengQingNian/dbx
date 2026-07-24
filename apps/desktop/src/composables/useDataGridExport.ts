@@ -1343,10 +1343,9 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     if (rowIds !== undefined || context.value !== "results" || !options.sql) {
       return false;
     }
-    // NOTE: hasCompleteLocalResult is intentionally NOT checked here.
-    // Even when the full result is in memory, we route through the backend
-    // streaming path so the export runs asynchronously with background task
-    // progress reporting, rather than blocking the UI on local formatting.
+    // The full result is already in memory — don't re-execute the query on the
+    // backend just to stream the same rows back to a file.
+    if (hasCompleteLocalResult?.value) return false;
 
     const fmt = FORMAT_META[format];
     const extension = fmt?.ext ?? format;
@@ -1378,7 +1377,6 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
       includeSqlSheet: format === "xlsx" ? includeSqlSheet : undefined,
       pageSize: 1000,
       keysetOptimizationEnabled: false,
-      rowLimit: useSettingsStore().editorSettings.exportRowLimitEnabled ? useSettingsStore().editorSettings.exportRowLimit : undefined,
       dateTimeFormat: useSettingsStore().editorSettings.globalDateTimeExportFormat || undefined,
       exportTableName: format === "sql" ? tableMeta.value?.tableName : undefined,
       exportColumnTypes: format === "sql" ? (columnTypes.value?.map((t: string | null | undefined) => t ?? null) as Array<string | null | undefined> | undefined) : undefined,

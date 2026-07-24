@@ -690,7 +690,7 @@ test("full query result CSV export streams through the backend without loading a
   assert.equal(apiMock.exportQueryResultCsv.mock.calls.length, 0);
 });
 
-test("complete local query result XLSX export routes through backend streaming for progress reporting", async () => {
+test("complete local query result XLSX export does not re-execute the query", async () => {
   const completeLocalResult: QueryResult = {
     columns: ["id", "name"],
     column_types: ["int4", "text"],
@@ -703,13 +703,14 @@ test("complete local query result XLSX export routes through backend streaming f
     truncated: false,
     has_more: false,
   };
-  const { composable, fullExportResult } = buildExportHarness({ completeLocalResult });
+  const { composable, fullExportResult, queryResultExportRequest } = buildExportHarness({ completeLocalResult });
 
   await composable.exportXlsx();
 
   assert.equal(fullExportResult.mock.calls.length, 0);
-  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
-  assert.equal(apiMock.exportQueryResultXlsx.mock.calls.length, 0);
+  assert.equal(queryResultExportRequest.mock.calls.length, 0);
+  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 0);
+  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1), ["Export", ["id", "name"], ["int4", "text"], completeLocalResult.rows]);
 });
 
 test("complete local query result export removes only internal hidden columns", async () => {
@@ -730,7 +731,15 @@ test("complete local query result export removes only internal hidden columns", 
 
   await composable.exportXlsx();
 
-  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 1);
+  assert.deepEqual(apiMock.exportQueryResultXlsx.mock.calls[0]?.slice(1), [
+    "Export",
+    ["id", "name"],
+    ["int4", "text"],
+    [
+      [1, "Ada"],
+      [2, "Lin"],
+    ],
+  ]);
 });
 
 test("complete local CSV, XLSX, and TXT exports honor the enabled row limit", async () => {
@@ -747,9 +756,20 @@ test("complete local CSV, XLSX, and TXT exports honor the enabled row limit", as
   const { composable } = buildExportHarness({ completeLocalResult });
 
   await composable.exportCsv();
-  assert.equal(apiMock.startQueryResultExport.mock.calls[0]?.[0].rowLimit, 100);
+  assert.equal(apiMock.exportQueryResultCsv.mock.calls[0]?.[2].length, 100);
 
-  useSettingsStore().updateEditorSettings({ exportRowLimitEnabled: false });
+  await composable.exportXlsx();
+  assert.equal(apiMock.exportQueryResultXlsx.mock.calls[0]?.[4].length, 100);
+
+  const download = installTextDownloadCapture();
+  try {
+    await composable.exportTxt();
+    const lines = (await download.content())?.split("\n");
+    assert.equal(lines?.length, 101);
+    assert.equal(lines?.at(-1), "100");
+  } finally {
+    download.restore();
+  }
 });
 
 test("full query result CSV export defaults to the saved SQL title", async () => {
