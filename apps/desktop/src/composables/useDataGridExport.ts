@@ -1365,7 +1365,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
       exportId,
       filePath: outputPath,
       format,
-      includeSqlSheet: format === "xlsx" ? includeSqlSheet : undefined,
+      includeSqlSheet: format === "sql" ? undefined : includeSqlSheet,
       exportTableName: format === "sql" ? options.tableMeta?.value?.tableName : undefined,
       exportColumnTypes: format === "sql" ? options.columnTypes?.value : undefined,
     });
