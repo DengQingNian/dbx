@@ -1346,6 +1346,8 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     // The full result is already in memory — don't re-execute the query on the
     // backend just to stream the same rows back to a file.
     if (hasCompleteLocalResult?.value) return false;
+    // Web backend route only handles csv/xlsx in the SSE temp-file flow
+    if (!isTauriRuntime() && format !== "csv" && format !== "xlsx") return false;
 
     const fmt = FORMAT_META[format];
     const extension = fmt?.ext ?? format;

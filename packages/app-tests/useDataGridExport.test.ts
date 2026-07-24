@@ -902,14 +902,13 @@ test("streaming XLSX with SQL marks the backend request as opt in", async () => 
   assert.equal(apiMock.exportQueryResultsXlsx.mock.calls.length, 0);
 });
 
-test("streaming TXT export remains on the backend path without a SQL sheet", async () => {
+test("streaming TXT export falls back to local export in web mode", async () => {
   const { composable } = buildExportHarness();
 
   await composable.exportTxt();
 
-  assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].format, "txt");
-  assert.equal(apiMock.startQueryResultExport.mock.calls[0][0].includeSqlSheet, undefined);
-  assert.equal(apiMock.exportQueryResultsXlsx.mock.calls.length, 0);
+  // Web backend route only supports csv/xlsx via SSE — txt falls through to local
+  assert.equal(apiMock.startQueryResultExport.mock.calls.length, 0);
 });
 
 test("selected XLSX with SQL uses the effective result SQL in a second worksheet", async () => {
