@@ -184,11 +184,13 @@ fn progress(
 }
 
 fn effective_row_limit(format: &str, request: &QueryResultExportRequest) -> Option<usize> {
-    if format == "xlsx" {
-        Some(request.row_limit.map_or(XLSX_MAX_DATA_ROWS, |limit| limit.min(XLSX_MAX_DATA_ROWS)))
-    } else {
-        request.row_limit
+    if format == "sql" {
+        return request.row_limit; // No XLSX hard cap for SQL
     }
+    if format == "xlsx" {
+        return Some(request.row_limit.map_or(XLSX_MAX_DATA_ROWS, |limit| limit.min(XLSX_MAX_DATA_ROWS)));
+    }
+    request.row_limit
 }
 
 fn xlsx_hard_limit_active(format: &str, request: &QueryResultExportRequest) -> bool {
@@ -409,7 +411,7 @@ async fn export_query_result_core_inner(
     session_id: &mut Option<String>,
 ) -> Result<(), String> {
     let format = request.format.to_lowercase();
-    if format != "csv" && format != "xlsx" && format != "txt" {
+    if format != "csv" && format != "xlsx" && format != "txt" && format != "sql" {
         return Err(format!("Unsupported streaming query-result export format: {format}"));
     }
 
