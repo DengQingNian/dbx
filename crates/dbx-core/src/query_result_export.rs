@@ -1825,6 +1825,8 @@ mod tests {
             client_session_id: None,
             execution_id: None,
             date_time_format: None,
+            export_table_name: None,
+            export_column_types: None,
         }
     }
 
@@ -1901,6 +1903,17 @@ mod tests {
     #[test]
     fn xlsx_sql_sheet_is_opt_in() {
         assert!(query_sql_worksheets(&request("xlsx", None, None)).is_empty());
+    }
+
+    #[test]
+    fn sql_export_has_no_excel_row_cap() {
+        let req = request("sql", Some(100_000), Some(200_000));
+        assert_eq!(effective_row_limit("sql", &req), Some(100_000));
+    }
+
+    #[test]
+    fn sql_export_unlimited_has_no_effective_limit() {
+        assert_eq!(effective_row_limit("sql", &request("sql", None, None)), None);
     }
 
     #[test]
