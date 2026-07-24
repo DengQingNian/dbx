@@ -4,6 +4,7 @@ import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import * as api from "@/lib/backend/api";
 import { formatSelectionAsCsv, formatSelectionAsJson, formatSelectionAsSqlInList, formatSelectionAsTsv, type CellSelectionMatrix, type CellSelectionRange, type SelectionData } from "@/lib/dataGrid/gridSelection";
 import { useToast } from "@/composables/useToast";
+import { useExportTracker } from "@/composables/useExportTracker";
 import { displayCellValue, type CellValue } from "@/lib/dataGrid/cellValue";
 import { tryStartExclusiveActivation, type ActionActivationGuard } from "@/lib/connection/actionActivation";
 import { copyToClipboard } from "@/lib/common/clipboard";
@@ -130,6 +131,7 @@ interface CopyInsertData {
 export function useDataGridExport(options: UseDataGridExportOptions) {
   const { t } = useI18n();
   const { toast } = useToast();
+  const { addTask, updateTableExportTask, registerTaskCancelHandler, unregisterTaskCancelHandler } = useExportTracker();
   const exportGuard: ActionActivationGuard = {};
   const copyRowInsertCache = ref<CopyStatementCache>({
     key: "",
@@ -1418,8 +1420,55 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
         // Step 1: table-data context — existing backend table export
         if (await exportFullTableDataViaBackend("sql", rowIds)) return;
 
-        // Step 2: query-result context — NEW backend streaming (async, background task)
-        if (await exportQueryResultViaBackend("sql", rowIds)) return;
+        // Step 2: query-result context — backend streaming, shown in background task popover
+        if (rowIds === undefined && context.value === "results" && options.sql && connectionId.value && database.value && databaseType.value) {
+          let outputPath = exportFileName("query-result", "sql");
+          if (isTauriRuntime()) {
+            const { save } = await import("@tauri-apps/plugin-dialog");
+            const path = await save({
+              defaultPath: outputPath,
+              filters: [{ name: "SQL", extensions: ["sql"] }],
+            });
+            if (!path) return;
+            outputPath = path as string;
+          }
+
+          const exportId = uuid();
+          const currentSql = options.sql.value;
+          const request: api.QueryResultExportRequest = {
+            exportId,
+            connectionId: connectionId.value!,
+            database: database.value!,
+            schema: tableMeta.value?.schema,
+            sql: currentSql!,
+            queryBaseSql: currentSql!,
+            setupSql: [],
+            databaseType: databaseType.value!,
+            useAgentCursor: false,
+            filePath: outputPath,
+            format: "sql",
+            pageSize: 1000,
+            keysetOptimizationEnabled: false,
+            dateTimeFormat: useSettingsStore().editorSettings.globalDateTimeExportFormat || undefined,
+            exportTableName: tableMeta.value?.tableName,
+            exportColumnTypes: columnTypes.value?.map((t: string | null | undefined) => t ?? null) as Array<string | null | undefined> | undefined,
+          };
+
+          registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
+          addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
+
+          try {
+            await api.startQueryResultExport(request, (progress) => {
+              updateTableExportTask(exportId, progress);
+              if (progress.status === "Done") {
+                toast(t("grid.exported"));
+              }
+            });
+          } finally {
+            unregisterTaskCancelHandler(exportId);
+          }
+          return;
+        }
 
         // Step 3: fallback — local export
         const result = await resultToExport(rowIds, undefined, true, false);
