@@ -832,6 +832,9 @@ async fn try_export_postgres_query_result_stream(
         None
     };
     let mut xlsx = None;
+    let mut sql_file: Option<BufWriter<std::fs::File>> = None;
+    let mut pending_rows: Vec<Vec<Value>> = Vec::new();
+    let mut sql_col_types: Vec<Option<String>> = Vec::new();
     let budget = operation_budget_for_pool_key(state, &pool_key, query_export_timeout(request.timeout_secs)).await;
     let cancel_context = state.get_postgres_cancel_context(&pool_key).await;
 
@@ -850,6 +853,10 @@ async fn try_export_postgres_query_result_stream(
                 crate::db::postgres::PostgresQueryStreamItem::Columns { columns: stream_columns, column_types } => {
                     columns = stream_columns;
                     temporal_column_types = column_types.clone();
+                    if format == "sql" {
+                        sql_col_types = sql_insert_column_types(request, &column_types);
+                        return Ok(());
+                    }
                     if let Some(file) = text_file.as_mut() {
                         let header = format_text_export_header(format, &columns);
                         file.write_all(header.as_bytes()).map_err(|e| format!("Failed to write export header: {e}"))?;
@@ -873,18 +880,48 @@ async fn try_export_postgres_query_result_stream(
                         &temporal_column_types,
                         request.date_time_format.as_deref(),
                     );
-                    if let Some(file) = text_file.as_mut() {
-                        let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
-                        write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
-                    } else if let Some(writer) = xlsx.as_mut() {
-                        writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
-                    } else {
-                        let xlsx_file =
-                            File::create(&request.file_path).map_err(|e| format!("Failed to create XLSX file: {e}"))?;
-                        xlsx =
-                            Some(start_query_result_xlsx_workbook(BufWriter::new(xlsx_file), request, &columns, &[])?);
-                        if let Some(writer) = xlsx.as_mut() {
+                    if format != "sql" {
+                        if let Some(file) = text_file.as_mut() {
+                            let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
+                            write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
+                        } else if let Some(writer) = xlsx.as_mut() {
                             writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                        } else {
+                            let xlsx_file = File::create(&request.file_path)
+                                .map_err(|e| format!("Failed to create XLSX file: {e}"))?;
+                            xlsx = Some(start_query_result_xlsx_workbook(
+                                BufWriter::new(xlsx_file),
+                                request,
+                                &columns,
+                                &[],
+                            )?);
+                            if let Some(writer) = xlsx.as_mut() {
+                                writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                            }
+                        }
+                    }
+                    if format == "sql" {
+                        pending_rows.push(formatted);
+                        if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
+                            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                                database_type: Some(request.database_type),
+                                schema: request.schema.clone(),
+                                table_name: request.export_table_name.clone(),
+                                qualified_table_name: None,
+                                columns: columns.clone(),
+                                column_types: sql_col_types.clone(),
+                                column_extras: Vec::new(),
+                                rows: pending_rows.drain(..).collect(),
+                                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+                            })?;
+                            let file = sql_file.get_or_insert_with(|| {
+                                BufWriter::new(
+                                    std::fs::File::create(&request.file_path).expect("Failed to create SQL file"),
+                                )
+                            });
+                            for stmt in &stmts {
+                                writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                            }
                         }
                     }
                     rows_exported += 1;
@@ -923,6 +960,29 @@ async fn try_export_postgres_query_result_stream(
         let mut buf =
             finish_streaming_xlsx_workbook(writer).map_err(|e| format!("Failed to finalize XLSX file: {e}"))?;
         buf.flush().map_err(|e| format!("Failed to flush XLSX file: {e}"))?;
+    }
+    if format == "sql" {
+        if !pending_rows.is_empty() {
+            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                database_type: Some(request.database_type),
+                schema: request.schema.clone(),
+                table_name: request.export_table_name.clone(),
+                qualified_table_name: None,
+                columns: columns.clone(),
+                column_types: sql_col_types.clone(),
+                column_extras: Vec::new(),
+                rows: pending_rows.drain(..).collect(),
+                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+            })?;
+            if let Some(file) = sql_file.as_mut() {
+                for stmt in &stmts {
+                    writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                }
+            }
+        }
+        if let Some(file) = sql_file.as_mut() {
+            file.flush().map_err(|e| format!("Failed to flush SQL file: {e}"))?;
+        }
     }
     on_progress(progress(request, rows_exported, ExportStatus::Done, None));
     Ok(true)
@@ -1003,6 +1063,9 @@ async fn try_export_mysql_query_result_stream(
         None
     };
     let mut xlsx = None;
+    let mut sql_file: Option<BufWriter<std::fs::File>> = None;
+    let mut pending_rows: Vec<Vec<Value>> = Vec::new();
+    let mut sql_col_types: Vec<Option<String>> = Vec::new();
     let query_timeout = query_export_timeout(request.timeout_secs);
     let operation_budget = operation_budget_for_pool_key(state, &pool_key, query_timeout).await;
     let mut conn = crate::db::mysql::get_conn_with_health_check_with_cancel(
@@ -1070,6 +1133,10 @@ async fn try_export_mysql_query_result_stream(
                 crate::db::mysql::MySqlQueryStreamItem::Columns { columns: stream_columns, column_types } => {
                     columns = stream_columns;
                     temporal_column_types = column_types.clone();
+                    if format == "sql" {
+                        sql_col_types = sql_insert_column_types(request, &column_types);
+                        return Ok(());
+                    }
                     if let Some(file) = text_file.as_mut() {
                         let header = format_text_export_header(format, &columns);
                         file.write_all(header.as_bytes()).map_err(|e| format!("Failed to write export header: {e}"))?;
@@ -1093,18 +1160,48 @@ async fn try_export_mysql_query_result_stream(
                         &temporal_column_types,
                         request.date_time_format.as_deref(),
                     );
-                    if let Some(file) = text_file.as_mut() {
-                        let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
-                        write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
-                    } else if let Some(writer) = xlsx.as_mut() {
-                        writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
-                    } else {
-                        let xlsx_file =
-                            File::create(&request.file_path).map_err(|e| format!("Failed to create XLSX file: {e}"))?;
-                        xlsx =
-                            Some(start_query_result_xlsx_workbook(BufWriter::new(xlsx_file), request, &columns, &[])?);
-                        if let Some(writer) = xlsx.as_mut() {
+                    if format != "sql" {
+                        if let Some(file) = text_file.as_mut() {
+                            let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
+                            write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
+                        } else if let Some(writer) = xlsx.as_mut() {
                             writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                        } else {
+                            let xlsx_file = File::create(&request.file_path)
+                                .map_err(|e| format!("Failed to create XLSX file: {e}"))?;
+                            xlsx = Some(start_query_result_xlsx_workbook(
+                                BufWriter::new(xlsx_file),
+                                request,
+                                &columns,
+                                &[],
+                            )?);
+                            if let Some(writer) = xlsx.as_mut() {
+                                writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                            }
+                        }
+                    }
+                    if format == "sql" {
+                        pending_rows.push(formatted);
+                        if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
+                            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                                database_type: Some(request.database_type),
+                                schema: request.schema.clone(),
+                                table_name: request.export_table_name.clone(),
+                                qualified_table_name: None,
+                                columns: columns.clone(),
+                                column_types: sql_col_types.clone(),
+                                column_extras: Vec::new(),
+                                rows: pending_rows.drain(..).collect(),
+                                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+                            })?;
+                            let file = sql_file.get_or_insert_with(|| {
+                                BufWriter::new(
+                                    std::fs::File::create(&request.file_path).expect("Failed to create SQL file"),
+                                )
+                            });
+                            for stmt in &stmts {
+                                writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                            }
                         }
                     }
                     rows_exported += 1;
@@ -1194,6 +1291,29 @@ async fn try_export_mysql_query_result_stream(
             finish_streaming_xlsx_workbook(writer).map_err(|e| format!("Failed to finalize XLSX file: {e}"))?;
         buf.flush().map_err(|e| format!("Failed to flush XLSX file: {e}"))?;
     }
+    if format == "sql" {
+        if !pending_rows.is_empty() {
+            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                database_type: Some(request.database_type),
+                schema: request.schema.clone(),
+                table_name: request.export_table_name.clone(),
+                qualified_table_name: None,
+                columns: columns.clone(),
+                column_types: sql_col_types.clone(),
+                column_extras: Vec::new(),
+                rows: pending_rows.drain(..).collect(),
+                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+            })?;
+            if let Some(file) = sql_file.as_mut() {
+                for stmt in &stmts {
+                    writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                }
+            }
+        }
+        if let Some(file) = sql_file.as_mut() {
+            file.flush().map_err(|e| format!("Failed to flush SQL file: {e}"))?;
+        }
+    }
     on_progress(progress(request, rows_exported, ExportStatus::Done, None));
     Ok(true)
 }
@@ -1261,6 +1381,9 @@ async fn try_export_clickhouse_query_result_stream(
         None
     };
     let mut xlsx = None;
+    let mut sql_file: Option<BufWriter<std::fs::File>> = None;
+    let mut pending_rows: Vec<Vec<Value>> = Vec::new();
+    let mut sql_col_types: Vec<Option<String>> = Vec::new();
     let query_timeout = query_export_timeout(request.timeout_secs);
     let clickhouse_database = if database.is_empty() { "default" } else { database };
 
@@ -1280,6 +1403,10 @@ async fn try_export_clickhouse_query_result_stream(
                 } => {
                     columns = stream_columns;
                     temporal_column_types = column_types.clone();
+                    if format == "sql" {
+                        sql_col_types = sql_insert_column_types(request, &column_types);
+                        return Ok(());
+                    }
                     if let Some(file) = text_file.as_mut() {
                         let header = format_text_export_header(format, &columns);
                         file.write_all(header.as_bytes()).map_err(|e| format!("Failed to write export header: {e}"))?;
@@ -1303,18 +1430,48 @@ async fn try_export_clickhouse_query_result_stream(
                         &temporal_column_types,
                         request.date_time_format.as_deref(),
                     );
-                    if let Some(file) = text_file.as_mut() {
-                        let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
-                        write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
-                    } else if let Some(writer) = xlsx.as_mut() {
-                        writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
-                    } else {
-                        let xlsx_file =
-                            File::create(&request.file_path).map_err(|e| format!("Failed to create XLSX file: {e}"))?;
-                        xlsx =
-                            Some(start_query_result_xlsx_workbook(BufWriter::new(xlsx_file), request, &columns, &[])?);
-                        if let Some(writer) = xlsx.as_mut() {
+                    if format != "sql" {
+                        if let Some(file) = text_file.as_mut() {
+                            let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
+                            write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
+                        } else if let Some(writer) = xlsx.as_mut() {
                             writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                        } else {
+                            let xlsx_file = File::create(&request.file_path)
+                                .map_err(|e| format!("Failed to create XLSX file: {e}"))?;
+                            xlsx = Some(start_query_result_xlsx_workbook(
+                                BufWriter::new(xlsx_file),
+                                request,
+                                &columns,
+                                &[],
+                            )?);
+                            if let Some(writer) = xlsx.as_mut() {
+                                writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                            }
+                        }
+                    }
+                    if format == "sql" {
+                        pending_rows.push(formatted);
+                        if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
+                            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                                database_type: Some(request.database_type),
+                                schema: request.schema.clone(),
+                                table_name: request.export_table_name.clone(),
+                                qualified_table_name: None,
+                                columns: columns.clone(),
+                                column_types: sql_col_types.clone(),
+                                column_extras: Vec::new(),
+                                rows: pending_rows.drain(..).collect(),
+                                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+                            })?;
+                            let file = sql_file.get_or_insert_with(|| {
+                                BufWriter::new(
+                                    std::fs::File::create(&request.file_path).expect("Failed to create SQL file"),
+                                )
+                            });
+                            for stmt in &stmts {
+                                writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                            }
                         }
                     }
                     rows_exported += 1;
@@ -1378,6 +1535,29 @@ async fn try_export_clickhouse_query_result_stream(
             finish_streaming_xlsx_workbook(writer).map_err(|e| format!("Failed to finalize XLSX file: {e}"))?;
         buf.flush().map_err(|e| format!("Failed to flush XLSX file: {e}"))?;
     }
+    if format == "sql" {
+        if !pending_rows.is_empty() {
+            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                database_type: Some(request.database_type),
+                schema: request.schema.clone(),
+                table_name: request.export_table_name.clone(),
+                qualified_table_name: None,
+                columns: columns.clone(),
+                column_types: sql_col_types.clone(),
+                column_extras: Vec::new(),
+                rows: pending_rows.drain(..).collect(),
+                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+            })?;
+            if let Some(file) = sql_file.as_mut() {
+                for stmt in &stmts {
+                    writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                }
+            }
+        }
+        if let Some(file) = sql_file.as_mut() {
+            file.flush().map_err(|e| format!("Failed to flush SQL file: {e}"))?;
+        }
+    }
     on_progress(progress(request, rows_exported, ExportStatus::Done, None));
     Ok(true)
 }
@@ -1426,6 +1606,9 @@ async fn try_export_sqlserver_query_result_stream(
         None
     };
     let mut xlsx = None;
+    let mut sql_file: Option<BufWriter<std::fs::File>> = None;
+    let mut pending_rows: Vec<Vec<Value>> = Vec::new();
+    let mut sql_col_types: Vec<Option<String>> = Vec::new();
     let query_timeout = query_export_timeout(request.timeout_secs);
 
     let mut client = match cancel_token.as_ref() {
@@ -1451,6 +1634,10 @@ async fn try_export_sqlserver_query_result_stream(
                 crate::db::sqlserver::SqlServerStreamItem::Columns { columns: stream_columns, column_types } => {
                     columns = stream_columns.to_vec();
                     temporal_column_types = column_types.to_vec();
+                    if format == "sql" {
+                        sql_col_types = sql_insert_column_types(request, &column_types);
+                        return Ok(());
+                    }
                     if let Some(file) = text_file.as_mut() {
                         let header = format_text_export_header(format, &columns);
                         file.write_all(header.as_bytes()).map_err(|e| format!("Failed to write export header: {e}"))?;
@@ -1470,18 +1657,48 @@ async fn try_export_sqlserver_query_result_stream(
                         &temporal_column_types,
                         request.date_time_format.as_deref(),
                     );
-                    if let Some(file) = text_file.as_mut() {
-                        let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
-                        write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
-                    } else if let Some(writer) = xlsx.as_mut() {
-                        writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
-                    } else {
-                        let xlsx_file =
-                            File::create(&request.file_path).map_err(|e| format!("Failed to create XLSX file: {e}"))?;
-                        xlsx =
-                            Some(start_query_result_xlsx_workbook(BufWriter::new(xlsx_file), request, &columns, &[])?);
-                        if let Some(writer) = xlsx.as_mut() {
+                    if format != "sql" {
+                        if let Some(file) = text_file.as_mut() {
+                            let rows = format_text_export_rows(format, std::slice::from_ref(&formatted));
+                            write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
+                        } else if let Some(writer) = xlsx.as_mut() {
                             writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                        } else {
+                            let xlsx_file = File::create(&request.file_path)
+                                .map_err(|e| format!("Failed to create XLSX file: {e}"))?;
+                            xlsx = Some(start_query_result_xlsx_workbook(
+                                BufWriter::new(xlsx_file),
+                                request,
+                                &columns,
+                                &[],
+                            )?);
+                            if let Some(writer) = xlsx.as_mut() {
+                                writer.write_row(&formatted).map_err(|e| format!("Failed to write XLSX row: {e}"))?;
+                            }
+                        }
+                    }
+                    if format == "sql" {
+                        pending_rows.push(formatted);
+                        if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
+                            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                                database_type: Some(request.database_type),
+                                schema: request.schema.clone(),
+                                table_name: request.export_table_name.clone(),
+                                qualified_table_name: None,
+                                columns: columns.clone(),
+                                column_types: sql_col_types.clone(),
+                                column_extras: Vec::new(),
+                                rows: pending_rows.drain(..).collect(),
+                                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+                            })?;
+                            let file = sql_file.get_or_insert_with(|| {
+                                BufWriter::new(
+                                    std::fs::File::create(&request.file_path).expect("Failed to create SQL file"),
+                                )
+                            });
+                            for stmt in &stmts {
+                                writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                            }
                         }
                     }
                     rows_exported += 1;
@@ -1525,6 +1742,29 @@ async fn try_export_sqlserver_query_result_stream(
         let mut buf =
             finish_streaming_xlsx_workbook(writer).map_err(|e| format!("Failed to finalize XLSX file: {e}"))?;
         buf.flush().map_err(|e| format!("Failed to flush XLSX file: {e}"))?;
+    }
+    if format == "sql" {
+        if !pending_rows.is_empty() {
+            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                database_type: Some(request.database_type),
+                schema: request.schema.clone(),
+                table_name: request.export_table_name.clone(),
+                qualified_table_name: None,
+                columns: columns.clone(),
+                column_types: sql_col_types.clone(),
+                column_extras: Vec::new(),
+                rows: pending_rows.drain(..).collect(),
+                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+            })?;
+            if let Some(file) = sql_file.as_mut() {
+                for stmt in &stmts {
+                    writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                }
+            }
+        }
+        if let Some(file) = sql_file.as_mut() {
+            file.flush().map_err(|e| format!("Failed to flush SQL file: {e}"))?;
+        }
     }
     on_progress(progress(request, rows_exported, ExportStatus::Done, None));
     Ok(true)
