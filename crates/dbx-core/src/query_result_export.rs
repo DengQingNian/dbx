@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::connection::{AppState, PoolKind};
 use crate::csv_export::{format_query_result_csv, format_query_result_csv_rows, format_tsv, format_tsv_rows};
-use crate::database_export::is_export_cancelled;
 pub use crate::database_export::ExportStatus;
+use crate::database_export::{build_export_insert_statements, is_export_cancelled, BuildExportInsertStatementsOptions};
 use crate::models::connection::DatabaseType;
 use crate::query::{
     await_stream_with_progress_timeout, canceled_error, close_query_session, execute_sql_statement_with_options,
@@ -40,6 +40,7 @@ const STREAMING_PAGINATION_UNSUPPORTED_ERROR: &str = "当前查询暂不支持�
 const AGENT_SESSION_MISSING_ERROR: &str = "查询结果流式导出需要驱动返回结果集会话，但当前驱动未返回 session_id。";
 const STREAM_PROGRESS_TIME_INTERVAL: Duration = Duration::from_secs(1);
 const EXCEL_CELL_CHARACTER_LIMIT: usize = 32_767;
+const SQL_INSERT_BATCH_SIZE: usize = 100; // flush INSERT statements every 100 rows
 
 async fn disconnect_with_timeout<C, F, Fut>(
     connection: C,
@@ -195,6 +196,19 @@ fn effective_row_limit(format: &str, request: &QueryResultExportRequest) -> Opti
 
 fn xlsx_hard_limit_active(format: &str, request: &QueryResultExportRequest) -> bool {
     format == "xlsx" && request.row_limit.is_none_or(|limit| limit > XLSX_MAX_DATA_ROWS)
+}
+
+/// Build column types for SQL INSERT from export_column_types or result column_types.
+fn sql_insert_column_types(request: &QueryResultExportRequest, result_column_types: &[String]) -> Vec<Option<String>> {
+    request.export_column_types.as_ref().map(|types| types.iter().map(|t| Some(t.clone())).collect()).unwrap_or_else(
+        || {
+            if result_column_types.is_empty() {
+                Vec::new()
+            } else {
+                result_column_types.iter().map(|t| Some(t.clone())).collect()
+            }
+        },
+    )
 }
 
 fn format_text_export_header(format: &str, columns: &[String]) -> String {
@@ -466,6 +480,9 @@ async fn export_query_result_core_inner(
     let mut rows_exported: u64 = 0;
     let mut offset: usize = 0;
     let mut wrote_text_header = false;
+    let mut sql_file: Option<BufWriter<std::fs::File>> = None;
+    let mut pending_rows: Vec<Vec<Value>> = Vec::new();
+    let mut sql_insert_col_types: Vec<Option<String>> = Vec::new();
     let mut keyset_plan = build_keyset_plan(state, request).await;
     if keyset_plan.is_none() && !request.use_agent_cursor && !supports_streaming_offset_pagination(request, page_size) {
         return Err(STREAMING_PAGINATION_UNSUPPORTED_ERROR.to_string());
@@ -590,6 +607,7 @@ async fn export_query_result_core_inner(
         if columns.is_empty() {
             columns = result.columns.clone();
             column_types = result.column_types.clone();
+            sql_insert_col_types = sql_insert_column_types(request, &column_types);
         }
         let fetched_row_count = result.rows.len();
         if xlsx_hard_limit_active {
@@ -621,6 +639,32 @@ async fn export_query_result_core_inner(
                 } else if row_count > 0 {
                     let rows = format_text_export_rows(&format, &formatted_rows);
                     write!(file, "\n{rows}").map_err(|e| format!("Failed to write export rows: {e}"))?;
+                }
+            }
+        } else if format == "sql" {
+            if sql_file.is_none() {
+                sql_file = Some(BufWriter::new(
+                    std::fs::File::create(&request.file_path).map_err(|e| format!("Failed to create SQL file: {e}"))?,
+                ));
+            }
+            pending_rows.extend(formatted_rows);
+            if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
+                let col_types_for_insert = sql_insert_col_types.clone();
+                let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                    database_type: Some(request.database_type),
+                    schema: request.schema.clone(),
+                    table_name: request.export_table_name.clone(),
+                    qualified_table_name: None,
+                    columns: columns.clone(),
+                    column_types: col_types_for_insert,
+                    column_extras: Vec::new(),
+                    rows: pending_rows.drain(..).collect(),
+                    batch_size: Some(SQL_INSERT_BATCH_SIZE),
+                })?;
+                if let Some(file) = sql_file.as_mut() {
+                    for stmt in &stmts {
+                        writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                    }
                 }
             }
         } else {
@@ -686,6 +730,29 @@ async fn export_query_result_core_inner(
         }
         if let Some(file) = text_file.as_mut() {
             file.flush().map_err(|e| format!("Failed to flush text export file: {e}"))?;
+        }
+    } else if format == "sql" {
+        if !pending_rows.is_empty() {
+            let col_types_for_insert = sql_insert_col_types.clone();
+            let stmts = build_export_insert_statements(BuildExportInsertStatementsOptions {
+                database_type: Some(request.database_type),
+                schema: request.schema.clone(),
+                table_name: request.export_table_name.clone(),
+                qualified_table_name: None,
+                columns: columns.clone(),
+                column_types: col_types_for_insert,
+                column_extras: Vec::new(),
+                rows: pending_rows.drain(..).collect(),
+                batch_size: Some(SQL_INSERT_BATCH_SIZE),
+            })?;
+            if let Some(file) = sql_file.as_mut() {
+                for stmt in &stmts {
+                    writeln!(file, "{stmt}").map_err(|e| format!("Failed to write SQL: {e}"))?;
+                }
+            }
+        }
+        if let Some(file) = sql_file.as_mut() {
+            file.flush().map_err(|e| format!("Failed to flush SQL file: {e}"))?;
         }
     } else if let Some(writer) = xlsx {
         let mut buf =
