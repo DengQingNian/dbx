@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufWriter, Seek, Write};
+use std::mem;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -658,7 +659,7 @@ async fn export_query_result_core_inner(
                     columns: columns.clone(),
                     column_types: col_types_for_insert,
                     column_extras: Vec::new(),
-                    rows: pending_rows.drain(..).collect(),
+                    rows: mem::take(&mut pending_rows),
                     batch_size: Some(SQL_INSERT_BATCH_SIZE),
                 })?;
                 if let Some(file) = sql_file.as_mut() {
@@ -742,7 +743,7 @@ async fn export_query_result_core_inner(
                 columns: columns.clone(),
                 column_types: col_types_for_insert,
                 column_extras: Vec::new(),
-                rows: pending_rows.drain(..).collect(),
+                rows: mem::take(&mut pending_rows),
                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
             })?;
             if let Some(file) = sql_file.as_mut() {
@@ -911,7 +912,7 @@ async fn try_export_postgres_query_result_stream(
                                 columns: columns.clone(),
                                 column_types: sql_col_types.clone(),
                                 column_extras: Vec::new(),
-                                rows: pending_rows.drain(..).collect(),
+                                rows: mem::take(&mut pending_rows),
                                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
                             })?;
                             let file = sql_file.get_or_insert_with(|| {
@@ -971,7 +972,7 @@ async fn try_export_postgres_query_result_stream(
                 columns: columns.clone(),
                 column_types: sql_col_types.clone(),
                 column_extras: Vec::new(),
-                rows: pending_rows.drain(..).collect(),
+                rows: mem::take(&mut pending_rows),
                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
             })?;
             if let Some(file) = sql_file.as_mut() {
@@ -1191,7 +1192,7 @@ async fn try_export_mysql_query_result_stream(
                                 columns: columns.clone(),
                                 column_types: sql_col_types.clone(),
                                 column_extras: Vec::new(),
-                                rows: pending_rows.drain(..).collect(),
+                                rows: mem::take(&mut pending_rows),
                                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
                             })?;
                             let file = sql_file.get_or_insert_with(|| {
@@ -1301,7 +1302,7 @@ async fn try_export_mysql_query_result_stream(
                 columns: columns.clone(),
                 column_types: sql_col_types.clone(),
                 column_extras: Vec::new(),
-                rows: pending_rows.drain(..).collect(),
+                rows: mem::take(&mut pending_rows),
                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
             })?;
             if let Some(file) = sql_file.as_mut() {
@@ -1461,7 +1462,7 @@ async fn try_export_clickhouse_query_result_stream(
                                 columns: columns.clone(),
                                 column_types: sql_col_types.clone(),
                                 column_extras: Vec::new(),
-                                rows: pending_rows.drain(..).collect(),
+                                rows: mem::take(&mut pending_rows),
                                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
                             })?;
                             let file = sql_file.get_or_insert_with(|| {
@@ -1545,7 +1546,7 @@ async fn try_export_clickhouse_query_result_stream(
                 columns: columns.clone(),
                 column_types: sql_col_types.clone(),
                 column_extras: Vec::new(),
-                rows: pending_rows.drain(..).collect(),
+                rows: mem::take(&mut pending_rows),
                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
             })?;
             if let Some(file) = sql_file.as_mut() {
@@ -1635,7 +1636,7 @@ async fn try_export_sqlserver_query_result_stream(
                     columns = stream_columns.to_vec();
                     temporal_column_types = column_types.to_vec();
                     if format == "sql" {
-                        sql_col_types = sql_insert_column_types(request, &column_types);
+                        sql_col_types = sql_insert_column_types(request, column_types);
                         return Ok(());
                     }
                     if let Some(file) = text_file.as_mut() {
@@ -1688,7 +1689,7 @@ async fn try_export_sqlserver_query_result_stream(
                                 columns: columns.clone(),
                                 column_types: sql_col_types.clone(),
                                 column_extras: Vec::new(),
-                                rows: pending_rows.drain(..).collect(),
+                                rows: mem::take(&mut pending_rows),
                                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
                             })?;
                             let file = sql_file.get_or_insert_with(|| {
@@ -1753,7 +1754,7 @@ async fn try_export_sqlserver_query_result_stream(
                 columns: columns.clone(),
                 column_types: sql_col_types.clone(),
                 column_extras: Vec::new(),
-                rows: pending_rows.drain(..).collect(),
+                rows: mem::take(&mut pending_rows),
                 batch_size: Some(SQL_INSERT_BATCH_SIZE),
             })?;
             if let Some(file) = sql_file.as_mut() {
