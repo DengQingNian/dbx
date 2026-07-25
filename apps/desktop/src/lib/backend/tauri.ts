@@ -2549,7 +2549,7 @@ export interface QueryResultExportRequest {
   databaseType: DatabaseType;
   useAgentCursor: boolean;
   filePath: string;
-  format: "csv" | "xlsx" | "txt";
+  format: "csv" | "xlsx" | "txt" | "sql";
   includeSqlSheet?: boolean;
   pageSize: number;
   rowLimit?: number | null;
@@ -2559,6 +2559,8 @@ export interface QueryResultExportRequest {
   clientSessionId?: string;
   executionId?: string;
   dateTimeFormat?: string;
+  exportTableName?: string;
+  exportColumnTypes?: Array<string | null | undefined>;
 }
 
 export async function startTableExport(request: TableExportRequest, onProgress: (progress: TableExportProgress) => void): Promise<TableExportProgress> {
