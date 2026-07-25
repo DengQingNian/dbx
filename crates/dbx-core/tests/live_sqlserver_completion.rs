@@ -449,6 +449,8 @@ async fn live_sqlserver_query_result_export_streams_cte_query_to_csv() {
         client_session_id: None,
         execution_id: Some(format!("live-sqlserver-export-{suffix}")),
         date_time_format: None,
+        export_table_name: None,
+        export_column_types: None,
     };
     let done_seen = AtomicBool::new(false);
     let result = export_query_result_core(&state, &request, None, |progress| {
