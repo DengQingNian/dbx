@@ -4,6 +4,7 @@ import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
 import * as api from "@/lib/backend/api";
 import { formatSelectionAsCsv, formatSelectionAsJson, formatSelectionAsSqlInList, formatSelectionAsTsv, type CellSelectionMatrix, type CellSelectionRange, type SelectionData } from "@/lib/dataGrid/gridSelection";
 import { useToast } from "@/composables/useToast";
+import { useExportTracker } from "@/composables/useExportTracker";
 import { displayCellValue, type CellValue } from "@/lib/dataGrid/cellValue";
 import { tryStartExclusiveActivation, type ActionActivationGuard } from "@/lib/connection/actionActivation";
 import { copyToClipboard } from "@/lib/common/clipboard";
@@ -83,7 +84,7 @@ export interface UseDataGridExportOptions {
   selectedRowIds: Ref<Set<number>> | ComputedRef<Set<number>>;
   hasRowSelection: ComputedRef<boolean>;
   fullExportResult?: (onProgress?: (info: { rowsExported: number; totalRows: number | null }) => void) => Promise<QueryResult | undefined>;
-  queryResultExportRequest?: (options: { exportId: string; filePath: string; format: "csv" | "xlsx" | "txt"; includeSqlSheet?: boolean }) => Promise<QueryResultExportRequest | undefined>;
+  queryResultExportRequest?: (options: { exportId: string; filePath: string; format: "csv" | "xlsx" | "txt" | "sql"; includeSqlSheet?: boolean; exportTableName?: string; exportColumnTypes?: Array<string | null | undefined> }) => Promise<QueryResultExportRequest | undefined>;
   /**
    * True when the in-memory result already holds the complete result set —
    * i.e. the query ran without server-side pagination, was not truncated, and
@@ -137,6 +138,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
   const { t } = useI18n();
   const { toast } = useToast();
   const exportGuard: ActionActivationGuard = {};
+  const { addTask, updateTableExportTask, registerTaskCancelHandler, unregisterTaskCancelHandler } = useExportTracker();
   const copyRowInsertCache = ref<CopyStatementCache>({
     key: "",
     text: "",
@@ -1444,11 +1446,71 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     return true;
   }
 
+  async function exportQueryResultSqlViaBackend(rowIds?: number[]): Promise<boolean> {
+    // Guard: only for query-result context without complete local result, desktop only
+    if (rowIds !== undefined || context.value !== "results" || !queryResultExportRequest) return false;
+    if (hasCompleteLocalResult?.value) return false;
+    if (!isTauriRuntime()) return false; // Web → local export fallback
+
+    // 1. Save dialog FIRST (immediate user feedback)
+    let outputPath = exportFileName("query-result", "sql");
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({
+      defaultPath: outputPath,
+      filters: [{ name: "SQL", extensions: ["sql"] }],
+    });
+    if (!path) return true;
+    outputPath = path as string;
+
+    // 2. Build full request via existing builder (preserves all fields)
+    const exportId = uuid();
+    const request = await queryResultExportRequest({
+      exportId,
+      filePath: outputPath,
+      format: "sql",
+      exportTableName: tableMeta.value?.tableName,
+      exportColumnTypes: columnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
+    });
+    if (!request) throw new Error("Unable to build query result export request");
+
+    // 3. Register background task
+    registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
+    addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
+
+    try {
+      await api.startQueryResultExport(request, (progress) => {
+        updateTableExportTask(exportId, progress);
+        if (progress.status === "Done") {
+          toast(t("grid.exported"));
+        }
+      });
+    } catch (e) {
+      // 4. Startup rejection → mark task Error (fixes stuck-Running bug)
+      updateTableExportTask(exportId, {
+        exportId,
+        tableName: tableMeta.value?.tableName || "Query Result",
+        rowsExported: 0,
+        totalRows: null,
+        status: "Error" as const,
+        errorMessage: (e as Error)?.message || String(e),
+      });
+      throw e;
+    } finally {
+      unregisterTaskCancelHandler(exportId);
+    }
+    return true;
+  }
+
   async function exportSql(rowIds?: number[]) {
     await runExclusiveExport(async () => {
       try {
+        // Step 1: table-data context — existing backend table export
         if (await exportFullTableDataViaBackend("sql", rowIds)) return;
 
+        // Step 2: query-result context — NEW backend streaming with background task
+        if (await exportQueryResultSqlViaBackend(rowIds)) return;
+
+        // Step 3: fallback — local export (Web and edge-case scenarios)
         const result = await resultToExport(rowIds, undefined, true, false);
         const exportData = sqlInsertExportData(result);
         const content = await formatSqlInsert({
