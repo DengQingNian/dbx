@@ -87,6 +87,11 @@ pub struct QueryResultExportRequest {
     pub execution_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_time_format: Option<String>,
+    // -- new fields for SQL INSERT export --
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_table_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub export_column_types: Option<Vec<String>>,
 }
 
 fn safe_postgres_temp_setup_sql(setup_sql: &[String]) -> Option<Vec<String>> {
