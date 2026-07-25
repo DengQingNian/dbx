@@ -410,7 +410,7 @@ async fn export_query_result_core_inner(
     session_id: &mut Option<String>,
 ) -> Result<(), String> {
     let format = request.format.to_lowercase();
-    if format != "csv" && format != "xlsx" && format != "txt" {
+    if format != "csv" && format != "xlsx" && format != "txt" && format != "sql" {
         return Err(format!("Unsupported streaming query-result export format: {format}"));
     }
 
@@ -430,24 +430,27 @@ async fn export_query_result_core_inner(
 
     on_progress(progress(request, 0, ExportStatus::Running, None));
 
-    if try_export_postgres_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
-        return Ok(());
-    }
+    if format != "sql" {
+        if try_export_postgres_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
+            return Ok(());
+        }
 
-    if try_export_sqlserver_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
-        return Ok(());
-    }
+        if try_export_sqlserver_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
+            return Ok(());
+        }
 
-    // MySQL does not guarantee a stable row order for independent LIMIT/OFFSET
-    // executions without ORDER BY, so query-result export must stream one run.
-    if try_export_mysql_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
-        return Ok(());
-    }
+        // MySQL does not guarantee a stable row order for independent LIMIT/OFFSET
+        // executions without ORDER BY, so query-result export must stream one run.
+        if try_export_mysql_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
+            return Ok(());
+        }
 
-    // ClickHouse HTTP pagination is unsafe for unsorted result sets; stream one
-    // response so large exports preserve the server's single execution order.
-    if try_export_clickhouse_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await? {
-        return Ok(());
+        // ClickHouse HTTP pagination is unsafe for unsorted result sets; stream one
+        // response so large exports preserve the server's single execution order.
+        if try_export_clickhouse_query_result_stream(state, request, &format, cancel_token.clone(), on_progress).await?
+        {
+            return Ok(());
+        }
     }
 
     let mut text_file = if format == "csv" || format == "txt" {
