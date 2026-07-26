@@ -627,6 +627,7 @@ impl AppState {
         agent_dir: PathBuf,
         app_version: impl Into<String>,
     ) -> Self {
+        let data_dir = storage.data_dir().to_path_buf();
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             task_supervisor: TaskSupervisor::new(),
@@ -635,7 +636,7 @@ impl AppState {
             connection_attempts: RwLock::new(HashMap::new()),
             configs: RwLock::new(HashMap::new()),
             running_queries: RunningQueries::default(),
-            tunnels: TunnelManager::new(),
+            tunnels: TunnelManager::new(data_dir),
             proxy_tunnels: ProxyTunnelManager::new(),
             http_tunnels: HttpTunnelManager::new(),
             storage,
@@ -3965,12 +3966,13 @@ mod tests {
     }
 
     #[test]
-    fn sqlserver_legacy_url_param_does_not_force_agent_driver() {
+    fn sqlserver_legacy_url_param_requires_canonicalization_before_agent_driver_selection() {
         let mut config = mysql_config(Some("master"));
         config.db_type = DatabaseType::SqlServer;
-        config.url_params = Some("applicationName=dbx;encrypt=false".to_string());
+        config.url_params = Some("applicationName=dbx;sqlserverEncryption=disabled".to_string());
 
         assert!(!sqlserver_uses_legacy_driver(&config));
+        assert!(sqlserver_uses_legacy_driver(&config.canonicalized()));
     }
 
     #[test]

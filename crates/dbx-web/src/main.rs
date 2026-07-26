@@ -203,6 +203,7 @@ async fn main() {
         sse_channels: RwLock::new(HashMap::new()),
         table_import_channels: RwLock::new(HashMap::new()),
         sql_file_executions: RwLock::new(HashMap::new()),
+        nacos_imports: RwLock::new(HashMap::new()),
         login_rate_limit: tokio::sync::Mutex::new(state::LoginRateLimit { fail_count: 0, locked_until: None }),
         export_files: RwLock::new(HashMap::new()),
     });
@@ -434,6 +435,8 @@ async fn main() {
         .route("/redis/stream-add", post(routes::redis::stream_add))
         .route("/redis/json-set", post(routes::redis::json_set))
         .route("/redis/check-json-module", post(routes::redis::check_json_module))
+        .route("/redis/set-ttl", post(routes::redis::set_ttl))
+        .route("/redis/set-expire-at", post(routes::redis::set_expire_at))
         .route("/redis/delete-keys", post(routes::redis::delete_keys))
         .route("/redis/flush-db", post(routes::redis::flush_db))
         .route("/redis/execute-command", post(routes::redis::execute_command))
@@ -443,6 +446,7 @@ async fn main() {
         .route("/redis/slowlog-get", post(routes::redis::slowlog_get))
         .route("/redis/cluster-master-nodes", post(routes::redis::cluster_master_nodes))
         // etcd
+        .route("/etcd/supports-ttl", post(routes::etcd::supports_ttl))
         .route("/etcd/list-prefix", post(routes::etcd::list_prefix))
         .route("/etcd/get", post(routes::etcd::get))
         .route("/etcd/put", post(routes::etcd::put))
@@ -470,6 +474,13 @@ async fn main() {
         .route("/nacos/instances/list", post(routes::nacos::list_instances))
         .route("/nacos/instances/update", post(routes::nacos::update_instance))
         .route("/nacos/raw", post(routes::nacos::raw_request))
+        .route("/nacos/configs/search", post(routes::nacos::search_config_content))
+        .route("/nacos/configs/search/cancel", post(routes::nacos::cancel_operation))
+        .route("/nacos/configs/export", post(routes::nacos::export_configs))
+        .route("/nacos/configs/import/preview", post(routes::nacos::preview_config_import))
+        .route("/nacos/configs/import/apply", post(routes::nacos::apply_config_import))
+        .route("/nacos/configs/copy/preview", post(routes::nacos::preview_config_transfer))
+        .route("/nacos/configs/copy/apply", post(routes::nacos::apply_config_transfer))
         // MongoDB
         .route("/mongo/list-databases", post(routes::mongo::list_databases))
         .route("/mongo/list-collections", post(routes::mongo::list_collections))
