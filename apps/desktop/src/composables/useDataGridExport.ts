@@ -1462,8 +1462,11 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     if (!path) return true;
     outputPath = path as string;
 
-    // 2. Build full request via existing builder (preserves all fields)
-    const exportId = uuid();
+    // 2. Register background task FIRST (its exportId drives everything)
+    const task = addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
+    const exportId = task.exportId;
+
+    // 3. Build full request via existing builder (preserves all fields)
     const request = await queryResultExportRequest({
       exportId,
       filePath: outputPath,
@@ -1473,9 +1476,8 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     });
     if (!request) throw new Error("Unable to build query result export request");
 
-    // 3. Register background task
+    // Cancel handler needs executionId from the built request
     registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
-    addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
 
     try {
       await api.startQueryResultExport(request, (progress) => {
