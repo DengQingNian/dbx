@@ -653,8 +653,6 @@ async fn export_query_result_core_inner(
                 }
             }
         } else if format == "sql" {
-            // File opened unconditionally before the loop; safe to unwrap.
-            let file = sql_file.as_mut().unwrap();
             pending_rows.extend(formatted_rows);
             if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
                 let col_types = sql_insert_col_types.clone();
