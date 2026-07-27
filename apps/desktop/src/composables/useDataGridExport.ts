@@ -79,6 +79,7 @@ export interface UseDataGridExportOptions {
   sourceColumns: ComputedRef<Array<string | undefined> | undefined>;
   mongoDocuments?: ComputedRef<unknown[] | undefined>;
   columnTypes: ComputedRef<Array<string | undefined> | undefined>;
+  allColumnTypes?: ComputedRef<Array<string | undefined> | undefined>;
   whereInput: ComputedRef<string | undefined>;
   orderBy: ComputedRef<string | undefined>;
   exportBatchSize: ComputedRef<number>;
@@ -140,48 +141,6 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
   const { toast } = useToast();
   const exportGuard: ActionActivationGuard = {};
   const { addTask, updateTableExportTask, registerTaskCancelHandler, unregisterTaskCancelHandler, removeTask } = useExportTracker();
-  const copyRowInsertCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copyRowInsertRowByRowCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copyRowInsertWithoutPrimaryKeysCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copyRowInsertWithoutPrimaryKeysRowByRowCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copySelectionInsertCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copySelectionInsertRowByRowCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
-  const copyRowUpdateCache = ref<CopyStatementCache>({
-    key: "",
-    text: "",
-    loading: false,
-    ready: false,
-  });
 
   const {
     columns,
@@ -203,6 +162,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     whereInput,
     orderBy,
     columnTypes,
+    allColumnTypes: allColumnTypesOption,
     exportBatchSize,
     hasCellSelection,
     hasColumnSelection: hasColumnSelectionOption,
@@ -229,6 +189,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
   const allColumns = allColumnsOption ?? columns;
   const allDisplayItems = allDisplayItemsOption ?? displayItems;
   const allSourceColumns = allSourceColumnsOption ?? sourceColumns;
+  const allColumnTypes = computed(() => allColumnTypesOption?.value ?? columnTypes.value);
   const visibleColumnIndexes = visibleColumnIndexesOption ?? computed(() => columns.value.map((_, index) => index));
   const hasColumnSelection = hasColumnSelectionOption ?? computed(() => false);
 
@@ -1090,7 +1051,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
         filePath: outputPath,
         format: "sql",
         exportTableName: tableMeta.value?.tableName,
-        exportColumnTypes: columnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
+        exportColumnTypes: allColumnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
       });
       if (!built) {
         // builder declined — clean up the task we just registered

@@ -199,6 +199,10 @@ fn progress(
     }
 }
 
+fn stream_export_was_cancelled(error: &str, token_cancelled: bool, export_cancelled: bool) -> bool {
+    error == QUERY_CANCELED || token_cancelled || export_cancelled
+}
+
 /// Map the request's export_column_types (Web export may omit them) to
 /// the Vec<Option<String>> expected by build_export_insert_statements.
 ///
@@ -952,13 +956,13 @@ async fn try_export_postgres_query_result_stream(
     let cancel_context = state.get_postgres_cancel_context(&pool_key).await;
 
     let setup_sql = safe_postgres_temp_setup_sql(&request.setup_sql).unwrap_or_default();
-    crate::db::postgres::stream_select_query_with_cancel(
+    let stream_result = crate::db::postgres::stream_select_query_with_cancel(
         &pool,
         request.schema.as_deref(),
         &setup_sql,
         &request.sql,
         stream_row_limit,
-        cancel_token,
+        cancel_token.clone(),
         budget,
         cancel_context,
         |item| {
@@ -1024,7 +1028,25 @@ async fn try_export_postgres_query_result_stream(
             Ok(())
         },
     )
-    .await?;
+    .await;
+
+    if let Err(error) = stream_result {
+        let export_cancelled = is_export_cancelled(&request.export_id).await;
+        if stream_export_was_cancelled(
+            &error,
+            cancel_token.as_ref().is_some_and(|token| token.is_cancelled()),
+            export_cancelled,
+        ) {
+            on_progress(progress(
+                request,
+                rows_exported,
+                ExportStatus::Cancelled,
+                Some("Export cancelled".to_string()),
+            ));
+            return Ok(true);
+        }
+        return Err(error);
+    }
 
     if rows_exported != last_progress_rows {
         on_progress(progress(request, rows_exported, ExportStatus::Running, None));
@@ -1572,7 +1594,15 @@ async fn try_export_sqlserver_query_result_stream(
         Some(token) => {
             tokio::select! {
                 biased;
-                _ = token.cancelled() => return Err(canceled_error()),
+                _ = token.cancelled() => {
+                    on_progress(progress(
+                        request,
+                        rows_exported,
+                        ExportStatus::Cancelled,
+                        Some("Export cancelled".to_string()),
+                    ));
+                    return Ok(true);
+                },
                 guard = client.lock() => guard,
             }
         }
@@ -1648,15 +1678,33 @@ async fn try_export_sqlserver_query_result_stream(
             Ok(())
         },
     );
-    await_stream_with_progress_timeout(
+    let stream_result = await_stream_with_progress_timeout(
         stream_future,
         query_timeout,
         progress_clock,
         cancel_token.as_ref(),
         format!("Query timed out after {} seconds", query_timeout.map_or(0, |timeout| timeout.as_secs())),
     )
-    .await?;
+    .await;
     drop(client);
+
+    if let Err(error) = stream_result {
+        let export_cancelled = is_export_cancelled(&request.export_id).await;
+        if stream_export_was_cancelled(
+            &error,
+            cancel_token.as_ref().is_some_and(|token| token.is_cancelled()),
+            export_cancelled,
+        ) {
+            on_progress(progress(
+                request,
+                rows_exported,
+                ExportStatus::Cancelled,
+                Some("Export cancelled".to_string()),
+            ));
+            return Ok(true);
+        }
+        return Err(error);
+    }
 
     if rows_exported != last_progress_rows {
         on_progress(progress(request, rows_exported, ExportStatus::Running, None));
@@ -1679,6 +1727,14 @@ async fn try_export_sqlserver_query_result_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_cancel_detection_covers_driver_token_and_export_flags() {
+        assert!(stream_export_was_cancelled(QUERY_CANCELED, false, false));
+        assert!(stream_export_was_cancelled("driver closed", true, false));
+        assert!(stream_export_was_cancelled("driver closed", false, true));
+        assert!(!stream_export_was_cancelled("network failure", false, false));
+    }
 
     #[test]
     fn postgres_temp_setup_accepts_only_session_local_table_operations() {

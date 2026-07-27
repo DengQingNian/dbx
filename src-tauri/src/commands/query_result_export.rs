@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use tauri::{AppHandle, Emitter, State};
@@ -15,6 +15,24 @@ pub use dbx_core::table_export::TableExportProgress;
 
 fn emit_progress(app: &AppHandle, progress: TableExportProgress) {
     let _ = app.emit("query-result-export-progress", progress);
+}
+
+fn route_core_progress(
+    progress: TableExportProgress,
+    deferred_done: &Mutex<Option<TableExportProgress>>,
+    cancelled: &AtomicBool,
+    emit: impl FnOnce(TableExportProgress),
+) {
+    match progress.status {
+        ExportStatus::Done => {
+            *deferred_done.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(progress);
+        }
+        ExportStatus::Cancelled => {
+            cancelled.store(true, Ordering::SeqCst);
+            emit(progress);
+        }
+        _ => emit(progress),
+    }
 }
 
 /// Build a temp-file path alongside the target path.
@@ -65,6 +83,55 @@ mod tests {
         // back to "export" as the base name.
         assert!(temp.to_string_lossy().ends_with("export.dbx-export-tmp"));
     }
+
+    #[test]
+    fn route_core_progress_defers_done_until_finalization() {
+        let deferred_done = Mutex::new(None);
+        let cancelled = AtomicBool::new(false);
+        let emitted = Mutex::new(Vec::new());
+        let done = TableExportProgress {
+            export_id: "export-1".to_string(),
+            table_name: String::new(),
+            rows_exported: 42,
+            total_rows: Some(42),
+            status: ExportStatus::Done,
+            error_message: None,
+        };
+
+        route_core_progress(done, &deferred_done, &cancelled, |progress| {
+            emitted.lock().unwrap().push(progress);
+        });
+
+        assert!(emitted.lock().unwrap().is_empty());
+        assert_eq!(deferred_done.lock().unwrap().as_ref().map(|progress| progress.rows_exported), Some(42));
+        assert!(!cancelled.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn route_core_progress_keeps_cancelled_terminal_state() {
+        let deferred_done = Mutex::new(None);
+        let cancelled = AtomicBool::new(false);
+        let emitted = Mutex::new(Vec::new());
+        let progress = TableExportProgress {
+            export_id: "export-1".to_string(),
+            table_name: String::new(),
+            rows_exported: 7,
+            total_rows: None,
+            status: ExportStatus::Cancelled,
+            error_message: Some("Export cancelled".to_string()),
+        };
+
+        route_core_progress(progress, &deferred_done, &cancelled, |progress| {
+            emitted.lock().unwrap().push(progress);
+        });
+
+        assert!(deferred_done.lock().unwrap().is_none());
+        assert!(cancelled.load(Ordering::SeqCst));
+        assert!(matches!(
+            emitted.lock().unwrap().as_slice(),
+            [TableExportProgress { status: ExportStatus::Cancelled, .. }]
+        ));
+    }
 }
 
 #[tauri::command]
@@ -97,15 +164,17 @@ pub async fn start_query_result_export(
         let cancel_token = registered_query.as_ref().map(|query| query.token());
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancelled_progress = cancelled.clone();
+        let deferred_done = Arc::new(Mutex::new(None));
+        let deferred_done_progress = deferred_done.clone();
         let result =
             dbx_core::query_result_export::export_query_result_core(&state, &request, cancel_token, |progress| {
-                if matches!(progress.status, ExportStatus::Cancelled) {
-                    cancelled_progress.store(true, Ordering::SeqCst);
-                }
-                emit_progress(&app, progress);
+                route_core_progress(progress, &deferred_done_progress, &cancelled_progress, |progress| {
+                    emit_progress(&app, progress);
+                });
             })
             .await;
         drop(registered_query);
+        let completed_progress = deferred_done.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
 
         if let Err(e) = result {
             let _ = tokio::fs::remove_file(&request.file_path).await;
@@ -122,7 +191,7 @@ pub async fn start_query_result_export(
             );
         } else if cancelled.load(Ordering::SeqCst) {
             let _ = tokio::fs::remove_file(&request.file_path).await;
-        } else {
+        } else if let Some(progress) = completed_progress {
             // Success: atomically rename temp → target so the user's chosen
             // file is only created/replaced when the export fully completes.
             if let Err(e) = std::fs::rename(&request.file_path, &target_path) {
@@ -138,7 +207,22 @@ pub async fn start_query_result_export(
                         error_message: Some(format!("Failed to finalize export file: {e}")),
                     },
                 );
+            } else {
+                emit_progress(&app, progress);
             }
+        } else {
+            let _ = tokio::fs::remove_file(&request.file_path).await;
+            emit_progress(
+                &app,
+                TableExportProgress {
+                    export_id: export_id.clone(),
+                    table_name: String::new(),
+                    rows_exported: 0,
+                    total_rows: None,
+                    status: ExportStatus::Error,
+                    error_message: Some("Export finished without a completion status".to_string()),
+                },
+            );
         }
 
         dbx_core::database_export::clear_export_cancelled(&export_id).await;

@@ -1760,8 +1760,8 @@ const tableColumnTypesByName = computed(() => {
   }
   return map;
 });
-const visibleColumnTypes = computed(() =>
-  visibleColumnIndexes.value.map((index) =>
+const allColumnTypes = computed(() =>
+  props.result.columns.map((_, index) =>
     resolveResultColumnType({
       resultColumnType: props.result.column_types?.[index],
       resultColumnName: props.result.columns[index]?.toLocaleLowerCase(),
@@ -1770,6 +1770,7 @@ const visibleColumnTypes = computed(() =>
     }),
   ),
 );
+const visibleColumnTypes = computed(() => visibleColumnIndexes.value.map((index) => allColumnTypes.value[index]));
 const visibleColumnCount = computed(() => visibleColumnIndexes.value.length);
 
 const numericColumnRightAlign = computed(() => (settingsStore.editorSettings.numericColumnRightAlign ?? true) && !showTranspose.value);
@@ -5182,6 +5183,7 @@ const {
   sourceColumns: visibleSourceColumns,
   mongoDocuments: computed(() => props.result.mongo_copy_documents ?? props.result.mongo_documents),
   columnTypes: visibleColumnTypes,
+  allColumnTypes,
   whereInput: computed(() => currentWhereInput()),
   orderBy: computed(() => currentOrderBy()),
   exportBatchSize: computed(() => settingsStore.editorSettings.exportBatchSize),
