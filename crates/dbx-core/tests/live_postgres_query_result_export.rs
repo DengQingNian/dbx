@@ -20,6 +20,7 @@ fn live_postgres_config(
     ConnectionConfig {
         id: id.to_string(),
         name: id.to_string(),
+        note: String::new(),
         db_type: DatabaseType::Postgres,
         driver_profile: None,
         driver_label: None,
@@ -136,6 +137,7 @@ async fn live_postgres_query_result_export_uses_single_streamed_query() {
         date_time_format: None,
         export_table_name: None,
         export_column_types: None,
+        numeric_column_right_align: false,
     };
     let done_seen = AtomicBool::new(false);
     let result = export_query_result_core(&state, &request, None, |progress| {
@@ -213,6 +215,7 @@ async fn live_postgres_query_result_xlsx_preserves_temporal_cell_types() {
         date_time_format: None,
         export_table_name: None,
         export_column_types: None,
+        numeric_column_right_align: false,
     };
 
     export_query_result_core(&state, &request, None, |_| {}).await.expect("export temporal XLSX");
@@ -283,6 +286,7 @@ async fn live_postgres_truncated_batch_result_export_replays_safe_temp_setup() {
         date_time_format: None,
         export_table_name: None,
         export_column_types: None,
+        numeric_column_right_align: false,
     };
     let csv_rows = AtomicU64::new(0);
     export_query_result_core(&state, &request, None, |progress| {
@@ -356,6 +360,7 @@ async fn live_postgres_xlsx_export_can_outlive_query_timeout_while_rows_keep_arr
         date_time_format: None,
         export_table_name: None,
         export_column_types: None,
+        numeric_column_right_align: false,
     };
     let rows_exported = AtomicU64::new(0);
     let done_seen = AtomicBool::new(false);
@@ -420,6 +425,7 @@ async fn live_postgres_stream_still_times_out_without_progress_and_recovers() {
         date_time_format: None,
         export_table_name: None,
         export_column_types: None,
+        numeric_column_right_align: false,
     };
     let started_at = Instant::now();
     let result = export_query_result_core(&state, &request, None, |_| {}).await;

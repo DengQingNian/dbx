@@ -96,6 +96,8 @@ pub struct QueryResultExportRequest {
     /// Frontend sends these in original full-query column order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub export_column_types: Option<Vec<Option<String>>>,
+    #[serde(default)]
+    pub numeric_column_right_align: bool,
 }
 
 fn safe_postgres_temp_setup_sql(setup_sql: &[String]) -> Option<Vec<String>> {
@@ -154,6 +156,7 @@ fn query_sql_worksheets(request: &QueryResultExportRequest) -> Vec<XlsxWorksheet
         columns: vec!["SQL".to_string()],
         column_types: Vec::new(),
         rows: split_excel_cell_text(&request.sql).into_iter().map(|sql| vec![Value::String(sql)]).collect(),
+        numeric_column_right_align: false,
     }]
 }
 
@@ -171,6 +174,7 @@ fn start_query_result_xlsx_workbook<W: Write + Seek>(
         column_types,
         &trailing_sheets,
         request.date_time_format.as_deref(),
+        request.numeric_column_right_align,
     )
 }
 
@@ -1729,6 +1733,7 @@ mod tests {
             date_time_format: None,
             export_table_name: None,
             export_column_types: None,
+            numeric_column_right_align: false,
         }
     }
 
