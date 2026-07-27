@@ -211,6 +211,8 @@ async fn live_postgres_query_result_xlsx_preserves_temporal_cell_types() {
         client_session_id: Some(format!("live-postgres-xlsx-temporal-{suffix}")),
         execution_id: Some(format!("live-postgres-xlsx-temporal-{suffix}")),
         date_time_format: None,
+        export_table_name: None,
+        export_column_types: None,
     };
 
     export_query_result_core(&state, &request, None, |_| {}).await.expect("export temporal XLSX");
