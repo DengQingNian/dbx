@@ -1462,21 +1462,26 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     if (!path) return true;
     outputPath = path as string;
 
-    // 2. Register background task FIRST (its exportId drives everything)
-    const task = addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
-    const exportId = task.exportId;
+    // 2. Build request BEFORE registering any background task, so a failed
+    //    builder never leaves a stuck Running entry in the task list.
+    const exportId = uuid();
+    let request: api.QueryResultExportRequest;
+    try {
+      const built = await queryResultExportRequest({
+        exportId,
+        filePath: outputPath,
+        format: "sql",
+        exportTableName: tableMeta.value?.tableName,
+        exportColumnTypes: columnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
+      });
+      if (!built) return false; // builder declined → fall through to local export
+      request = built;
+    } catch {
+      return false; // builder error → fall through to local export
+    }
 
-    // 3. Build full request via existing builder (preserves all fields)
-    const request = await queryResultExportRequest({
-      exportId,
-      filePath: outputPath,
-      format: "sql",
-      exportTableName: tableMeta.value?.tableName,
-      exportColumnTypes: columnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
-    });
-    if (!request) throw new Error("Unable to build query result export request");
-
-    // Cancel handler needs executionId from the built request
+    // 3. Register background task with the validated exportId
+    addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
     registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
 
     try {

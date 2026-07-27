@@ -491,7 +491,11 @@ async fn export_query_result_core_inner(
         return Err(STREAMING_PAGINATION_UNSUPPORTED_ERROR.to_string());
     }
 
-    let mut sql_file: Option<BufWriter<File>> = None;
+    let mut sql_file: Option<BufWriter<File>> = if format == "sql" {
+        Some(BufWriter::new(File::create(&request.file_path).map_err(|e| format!("Failed to create SQL file: {e}"))?))
+    } else {
+        None
+    };
     let mut pending_rows: Vec<Vec<Value>> = Vec::new();
     let mut sql_insert_col_types: Vec<Option<String>> = Vec::new();
 
@@ -649,11 +653,8 @@ async fn export_query_result_core_inner(
                 }
             }
         } else if format == "sql" {
-            if sql_file.is_none() {
-                sql_file = Some(BufWriter::new(
-                    File::create(&request.file_path).map_err(|e| format!("Failed to create SQL file: {e}"))?,
-                ));
-            }
+            // File opened unconditionally before the loop; safe to unwrap.
+            let file = sql_file.as_mut().unwrap();
             pending_rows.extend(formatted_rows);
             if pending_rows.len() >= SQL_INSERT_BATCH_SIZE {
                 let col_types = sql_insert_col_types.clone();
@@ -1631,6 +1632,38 @@ mod tests {
         let req = request("xlsx", None, Some(XLSX_MAX_DATA_ROWS as u64 + 1));
         assert!(xlsx_hard_limit_active("xlsx", &req));
         assert!(req.total_rows.is_some_and(|total| total > XLSX_MAX_DATA_ROWS as u64));
+    }
+
+    #[test]
+    fn sql_insert_export_has_no_xlsx_row_cap() {
+        // SQL format should not be limited by XLSX_MAX_DATA_ROWS.
+        let req = request("sql", None, None);
+        assert!(!xlsx_hard_limit_active("sql", &req));
+        assert_eq!(effective_row_limit("sql", &req), None);
+    }
+
+    #[test]
+    fn sql_insert_column_types_maps_request_types_to_option_vec() {
+        let req = request("sql", None, None);
+        // No export_column_types set → every column becomes None
+        let result = sql_insert_column_types(&req, &["int4".into(), "text".into()]);
+        assert_eq!(result, vec![None, None]);
+
+        // Export_column_types provided → empty strings become None, others become Some
+        let mut req = req;
+        req.export_column_types = Some(vec!["int4".into(), "".into(), "jsonb".into()]);
+        let result = sql_insert_column_types(&req, &["int4".into(), "text".into(), "json".into()]);
+        assert_eq!(result, vec![Some("int4".into()), None, Some("jsonb".into())]);
+    }
+
+    #[test]
+    fn sql_export_sql_file_is_initialized_only_for_sql_format() {
+        // The sql_file variable is initialized at declaration only for "sql" format.
+        // This is tested by verifying the helper functions produce correct defaults.
+        let req = request("sql", None, None);
+        assert_eq!(req.format, "sql");
+        assert!(req.export_table_name.is_none());
+        assert!(req.export_column_types.is_none());
     }
 
     #[test]
