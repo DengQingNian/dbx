@@ -138,7 +138,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
   const { t } = useI18n();
   const { toast } = useToast();
   const exportGuard: ActionActivationGuard = {};
-  const { addTask, updateTableExportTask, registerTaskCancelHandler, unregisterTaskCancelHandler } = useExportTracker();
+  const { addTask, updateTableExportTask, registerTaskCancelHandler, unregisterTaskCancelHandler, removeTask } = useExportTracker();
   const copyRowInsertCache = ref<CopyStatementCache>({
     key: "",
     text: "",
@@ -1462,39 +1462,44 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
     if (!path) return true;
     outputPath = path as string;
 
-    // 2. Build request BEFORE registering any background task, so a failed
-    //    builder never leaves a stuck Running entry in the task list.
-    const exportId = uuid();
+    // 2. Register background task FIRST so its exportId drives the request.
+    //    addTask generates its own ID — capture it so progress callbacks match.
+    const task = addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
+    const taskExportId = task.exportId;
+
     let request: api.QueryResultExportRequest;
     try {
       const built = await queryResultExportRequest({
-        exportId,
+        exportId: taskExportId,
         filePath: outputPath,
         format: "sql",
         exportTableName: tableMeta.value?.tableName,
         exportColumnTypes: columnTypes.value?.map((t) => t ?? null) as Array<string | null | undefined> | undefined,
       });
-      if (!built) return false; // builder declined → fall through to local export
+      if (!built) {
+        // builder declined — clean up the task we just registered
+        removeTask(taskExportId);
+        return false;
+      }
       request = built;
     } catch {
-      return false; // builder error → fall through to local export
+      removeTask(taskExportId);
+      return false;
     }
 
-    // 3. Register background task with the validated exportId
-    addTask(tableMeta.value?.tableName || "Query Result", "sql", outputPath);
-    registerTaskCancelHandler(exportId, () => api.cancelQueryResultExport(exportId, request.executionId));
+    registerTaskCancelHandler(taskExportId, () => api.cancelQueryResultExport(taskExportId, request.executionId));
 
     try {
       await api.startQueryResultExport(request, (progress) => {
-        updateTableExportTask(exportId, progress);
+        updateTableExportTask(taskExportId, progress);
         if (progress.status === "Done") {
           toast(t("grid.exported"));
         }
       });
     } catch (e) {
       // 4. Startup rejection → mark task Error (fixes stuck-Running bug)
-      updateTableExportTask(exportId, {
-        exportId,
+      updateTableExportTask(taskExportId, {
+        exportId: taskExportId,
         tableName: tableMeta.value?.tableName || "Query Result",
         rowsExported: 0,
         totalRows: null,
@@ -1503,7 +1508,7 @@ export function useDataGridExport(options: UseDataGridExportOptions) {
       });
       throw e;
     } finally {
-      unregisterTaskCancelHandler(exportId);
+      unregisterTaskCancelHandler(taskExportId);
     }
     return true;
   }
