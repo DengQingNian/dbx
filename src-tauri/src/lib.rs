@@ -1704,12 +1704,15 @@ pub fn run() {
                 return;
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label().starts_with("detached-tab-") {
+                if let Some(tab_id) = window.label().strip_prefix("detached-tab-") {
                     if commands::app_settings::take_approved_detached_window_close(window.label()) {
                         return;
                     }
                     api.prevent_close();
-                    let _ = window.emit("dbx:detached-tab-close-requested", ());
+                    // Broadcast with the tabId payload: JS listeners registered
+                    // with the default `listen()` target receive events emitted
+                    // to any window, so the frontend must filter by tabId.
+                    let _ = window.emit("dbx:detached-tab-close-requested", serde_json::json!({ "tabId": tab_id }));
                     return;
                 }
                 if !should_hide_window_on_close(std::env::consts::OS) {

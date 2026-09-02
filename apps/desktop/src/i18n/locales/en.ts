@@ -1479,7 +1479,6 @@ export default {
     openInNewWindow: "Open in new window",
     returnToMainWindow: "Return to main window",
     dragBackToMain: "Drag this handle to the main window",
-    detachedCloseDirtyConfirm: "This tab has unsaved changes. Close the detached window and discard them?",
     detachedCloseTitle: "Close detached window",
     detachedCloseMessage: "This SQL tab has unsaved changes. Save them before closing and deleting the detached tab?",
     detachedTabUnavailable: "The detached tab is no longer available.",

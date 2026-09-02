@@ -22,10 +22,3 @@ export interface DetachedTabHandoff {
   resultCacheKey?: string;
   updatedAt: number;
 }
-
-export interface DetachedWindowGeometry {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}

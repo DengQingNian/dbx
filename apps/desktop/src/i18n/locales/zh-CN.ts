@@ -1403,7 +1403,6 @@ export default withEnglishFallback({
     openInNewWindow: "在新窗口打开",
     returnToMainWindow: "返回主窗口",
     dragBackToMain: "拖动此手柄可返回主窗口",
-    detachedCloseDirtyConfirm: "该标签有未保存修改。关闭独立窗口将放弃修改，是否继续？",
     detachedCloseTitle: "关闭独立窗口",
     detachedCloseMessage: "当前 SQL 标签有未保存修改。关闭并删除该独立标签前是否保存？",
     detachedTabUnavailable: "独立标签已不可用。",

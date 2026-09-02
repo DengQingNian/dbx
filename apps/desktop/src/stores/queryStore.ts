@@ -1922,13 +1922,6 @@ export const useQueryStore = defineStore("query", () => {
     return true;
   }
 
-  async function restoreDetachedTabResult(tabId: string, resultCacheKey: string): Promise<boolean> {
-    const tab = tabs.value.find((candidate) => candidate.id === tabId);
-    if (!tab) return false;
-    tab.resultCacheKey = resultCacheKey;
-    return restoreCachedResultPayload(tab, await readTabResultSnapshot(resultCacheKey));
-  }
-
   function findTabByIdentity(connectionId: string, database: string, title: string, mode: QueryTab["mode"], schema?: string, catalog?: string) {
     if (mode === "meilisearch-system") {
       return tabs.value.find((tab) => tab.connectionId === connectionId && tab.mode === mode);
@@ -7009,7 +7002,6 @@ export const useQueryStore = defineStore("query", () => {
     prepareDetachedTab,
     adoptDetachedTab,
     removeTabAfterDetachedReady,
-    restoreDetachedTabResult,
     flushDetachedTabPersistence,
     showCloseConfirm,
     pendingCloseTabId,

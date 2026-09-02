@@ -482,7 +482,9 @@ async function handleDetachedHeaderDragEnd(position: { x: number; y: number }) {
   }
 }
 
-async function handleDetachedCloseRequested() {
+async function handleDetachedCloseRequested(payload: unknown) {
+  const tabId = (payload as { tabId?: unknown } | null)?.tabId;
+  if (typeof tabId !== "string" || tabId !== detachedContextTabId) return;
   await requestDetachedReturn("close");
 }
 
@@ -511,8 +513,10 @@ async function handleDetachedTabLost(payload: unknown) {
   if (!handoff || handoff.tabId !== tabId) return;
   try {
     await queryStore.adoptDetachedTab(handoff);
-    await api.deleteDetachedTabHandoff(tabId);
+    // Persist the adopted tab before dropping the durable handoff so an
+    // interrupted shutdown cannot lose it from both stores.
     await queryStore.flushPendingPersist();
+    await api.deleteDetachedTabHandoff(tabId);
   } catch (error) {
     console.warn("[DBX][detached-tab:lost-restore:error]", error);
   }
@@ -527,8 +531,10 @@ async function handleDetachedReturnRequested(payload: unknown) {
   if (typeof data.revision === "number" && handoff.revision !== data.revision) return;
   try {
     await queryStore.adoptDetachedTab(handoff);
-    await api.deleteDetachedTabHandoff(data.tabId);
+    // Persist before deleting the handoff so the returned tab exists in at
+    // least one durable store at every point of the flow.
     await queryStore.flushPendingPersist();
+    await api.deleteDetachedTabHandoff(data.tabId);
     await emitDetachedEvent("dbx:detached-tab-return-complete", { tabId: data.tabId });
   } catch (error: any) {
     toast(error?.message || String(error), 5000);
