@@ -775,6 +775,10 @@ export interface SpatialColumn {
 export interface QueryResultSourceColumnRef {
   sourceKey: string;
   sourceColumn: string;
+  /** Physical source identity for display-only features such as column formatters. */
+  database?: string;
+  schema?: string;
+  tableName?: string;
 }
 
 export interface QueryResultRun {
@@ -1115,6 +1119,8 @@ export interface QueryPageJumpProgress {
 
 export interface QueryTab {
   id: string;
+  /** Stable creation time used when tabs are displayed in creation order. */
+  createdAt?: number;
   title: string;
   customTitle?: boolean;
   /** Force the editor to word-wrap regardless of the global setting, e.g. for auto-generated single-line templates. */
@@ -1193,6 +1199,8 @@ export interface QueryTab {
     head: number;
   };
   executionId?: string;
+  /** Ephemeral result run targeted by the current execution; null means a new run is being produced. */
+  executingResultRunId?: string | null;
   isExplaining?: boolean;
   explainExecutionId?: string;
   /** Per-run connection session for explain flows that require session state. */

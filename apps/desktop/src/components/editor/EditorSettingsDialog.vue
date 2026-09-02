@@ -45,7 +45,7 @@ import { Input } from "@/components/ui/input";
 import PasswordInput from "@/components/ui/PasswordInput.vue";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -53,7 +53,7 @@ import { HelpTooltip, Tooltip, TooltipContent, TooltipTrigger, TooltipProvider }
 import {
   useSettingsStore,
   AI_PROVIDER_PRESETS,
-  aiProviderLabel,
+  AI_PROVIDER_PARTNER_PRESETS,
   EDITOR_THEMES,
   DEFAULT_EDITOR_SETTINGS,
   DEFAULT_DESKTOP_SETTINGS,
@@ -63,6 +63,10 @@ import {
   normalizeDuckDbWorkerMaxProcesses,
   normalizeAiEnv,
   normalizeAiHeaders,
+  getAiProviderPreset,
+  getAiProviderPresetId,
+  getAiProviderPresetOption,
+  isAiPartnerProviderPreset,
   type AiProvider,
   type AiApiStyle,
   type AiAuthMethod,
@@ -80,6 +84,9 @@ import {
   type SidebarObjectInfoMode,
   type SqlSemanticDiagnosticsMode,
   type SavedSqlOpenTargetMode,
+  type TabGroupMode,
+  type TabPlacement,
+  type TabSortMode,
   type UpdateDownloadSource,
   type CustomThemeColors,
   type CustomTheme,
@@ -411,6 +418,9 @@ const editAppCloseUnsavedTabsMode = ref<AppCloseUnsavedTabsMode>(settingsStore.e
 const editSavedSqlOpenTargetMode = ref<SavedSqlOpenTargetMode>(settingsStore.editorSettings.savedSqlOpenTargetMode);
 const editAppLayout = ref(settingsStore.editorSettings.appLayout);
 const editTabLayout = ref(settingsStore.editorSettings.tabLayout);
+const editTabPlacement = ref<TabPlacement>(settingsStore.editorSettings.tabPlacement);
+const editTabGroupMode = ref<TabGroupMode>(settingsStore.editorSettings.tabGroupMode);
+const editTabSortMode = ref<TabSortMode>(settingsStore.editorSettings.tabSortMode);
 const editShowTrayIcon = ref(settingsStore.desktopSettings.show_tray_icon);
 const editQuitOnClose = ref(settingsStore.desktopSettings.quit_on_close);
 const desktopCloseBehaviorResetPending = ref(false);
@@ -629,6 +639,9 @@ function currentEditorSettingsDraft(): EditorSettingsDraft {
     savedSqlOpenTargetMode: editSavedSqlOpenTargetMode.value,
     appLayout: editAppLayout.value,
     tabLayout: editTabLayout.value,
+    tabPlacement: editTabPlacement.value,
+    tabGroupMode: editTabGroupMode.value,
+    tabSortMode: editTabSortMode.value,
     showColumnCommentsInHeader: editShowColumnCommentsInHeader.value,
     showColumnTypesInHeader: editShowColumnTypesInHeader.value,
     dataGridShowTransposeFieldMetadata: editDataGridShowTransposeFieldMetadata.value,
@@ -1027,6 +1040,9 @@ function syncEditorSettingsDraftFromStore() {
   editSavedSqlOpenTargetMode.value = settingsStore.editorSettings.savedSqlOpenTargetMode;
   editAppLayout.value = settingsStore.editorSettings.appLayout;
   editTabLayout.value = settingsStore.editorSettings.tabLayout;
+  editTabPlacement.value = settingsStore.editorSettings.tabPlacement;
+  editTabGroupMode.value = settingsStore.editorSettings.tabGroupMode;
+  editTabSortMode.value = settingsStore.editorSettings.tabSortMode;
   editShowColumnCommentsInHeader.value = settingsStore.editorSettings.showColumnCommentsInHeader;
   editShowColumnTypesInHeader.value = settingsStore.editorSettings.showColumnTypesInHeader;
   editDataGridShowTransposeFieldMetadata.value = settingsStore.editorSettings.dataGridShowTransposeFieldMetadata;
@@ -1311,6 +1327,9 @@ function resetDefaultsForTab(tab: SettingsCategory) {
     editActiveCustomThemeId.value = DEFAULT_EDITOR_SETTINGS.activeCustomThemeId;
     editAppLayout.value = DEFAULT_EDITOR_SETTINGS.appLayout;
     editTabLayout.value = DEFAULT_EDITOR_SETTINGS.tabLayout;
+    editTabPlacement.value = DEFAULT_EDITOR_SETTINGS.tabPlacement;
+    editTabGroupMode.value = DEFAULT_EDITOR_SETTINGS.tabGroupMode;
+    editTabSortMode.value = DEFAULT_EDITOR_SETTINGS.tabSortMode;
     editShowTrayIcon.value = DEFAULT_DESKTOP_SETTINGS.show_tray_icon;
     editQuitOnClose.value = DEFAULT_DESKTOP_SETTINGS.quit_on_close;
     desktopCloseBehaviorResetPending.value = true;
@@ -1782,6 +1801,18 @@ function setAppLayout(value: InterfaceLayout) {
 
 function setTabLayout(value: "scroll" | "wrap") {
   editTabLayout.value = value;
+}
+
+function setTabPlacement(value: TabPlacement) {
+  editTabPlacement.value = value;
+}
+
+function setTabGroupMode(value: TabGroupMode) {
+  editTabGroupMode.value = value;
+}
+
+function setTabSortMode(value: TabSortMode) {
+  editTabSortMode.value = value;
 }
 
 function setSidebarActivation(value: "single" | "double") {
@@ -3354,10 +3385,11 @@ const aiDeleteConfigId = ref<string | null>(null);
 const CLI_AI_PROVIDERS = new Set<AiProvider>(["claude-code-cli", "codex-cli", "opencode-cli", "pi-agent-cli", "cursor-cli", "grok-cli", "codebuddy-cli", "qoder-cli"]);
 const OPENCODE_CONTROL_ENV = new Set(["OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "OPENCODE_DB", "OPENCODE_PERMISSION", "OPENCODE_DISABLE_PROJECT_CONFIG"]);
 const CURSOR_CONTROL_ENV = new Set(["CURSOR_CONFIG_DIR", "CURSOR_DATA_DIR"]);
-const aiProviderOptions = computed(() => Object.values(AI_PROVIDER_PRESETS).filter((provider) => !isWeb || !CLI_AI_PROVIDERS.has(provider.provider)));
-const selectedAiProviderPreset = computed(() => AI_PROVIDER_PRESETS[aiEditProvider.value]);
+const builtinAiProviderOptions = computed(() => Object.values(AI_PROVIDER_PRESETS).filter((provider) => !isWeb || !CLI_AI_PROVIDERS.has(provider.provider)));
+const partnerAiProviderOptions = computed(() => AI_PROVIDER_PARTNER_PRESETS.filter((provider) => !isWeb || !CLI_AI_PROVIDERS.has(provider.provider)));
 
 const aiEditProvider = ref<AiProvider>("claude");
+const aiEditProviderPresetId = ref("claude");
 const aiEditApiKey = ref("");
 const aiEditAuthMethod = ref<AiAuthMethod>("api-key");
 const aiEditEndpoint = ref("");
@@ -3388,6 +3420,8 @@ const aiEditQoderCliPath = ref("");
 const aiEditQoderCliEnvRows = ref<AiEnvRow[]>([]);
 
 const aiAnthropicMessagesMode = computed(() => aiEditApiStyle.value === "anthropic-messages");
+const selectedAiProviderPreset = computed(() => getAiProviderPresetOption(aiEditProviderPresetId.value));
+const selectedAiPartnerPreset = computed(() => (isAiPartnerProviderPreset(selectedAiProviderPreset.value) ? selectedAiProviderPreset.value : null));
 
 const aiTesting = ref(false);
 const aiTestResult = ref<"" | "success" | "error">("");
@@ -3488,7 +3522,7 @@ const aiEditCliEnvRows = computed(() => {
 watch(aiIsCliProvider, (isCliProvider) => {
   if (isCliProvider) void ensureCliMcpStatus();
 });
-const aiRequiresApiKey = computed(() => AI_PROVIDER_PRESETS[aiEditProvider.value].requiresApiKey);
+const aiRequiresApiKey = computed(() => selectedAiProviderPreset.value.requiresApiKey);
 const aiUsesConfigurableAnthropicAuth = computed(() => aiEditProvider.value === "claude" || aiEditProvider.value === "anthropic-compatible" || (aiEditProvider.value === "custom" && aiAnthropicMessagesMode.value));
 const aiUsesCompatibleAnthropicApi = computed(() => aiEditProvider.value === "anthropic-compatible" || (aiEditProvider.value === "custom" && aiAnthropicMessagesMode.value));
 const aiSupportsAuthMethod = computed(() => aiUsesConfigurableAnthropicAuth.value);
@@ -3680,18 +3714,20 @@ function syncAiEditState() {
   aiTestErrorCopied.value = false;
 }
 
-function aiSelectProvider(provider: AiProvider) {
+function aiSelectProvider(presetId: string) {
+  const preset = getAiProviderPresetOption(presetId);
+  const provider = preset.provider;
   if (isWeb && CLI_AI_PROVIDERS.has(provider)) return;
-  if (provider === aiEditProvider.value) return;
+  if (presetId === aiEditProviderPresetId.value) return;
 
   // Apply new provider's preset defaults to edit state
-  const preset = AI_PROVIDER_PRESETS[provider];
+  aiEditProviderPresetId.value = presetId;
   aiEditProvider.value = provider;
   aiEditApiKey.value = "";
   aiEditAuthMethod.value = preset.authMethod;
   aiEditEndpoint.value = preset.endpoint;
-  aiEditModel.value = "";
-  aiEditLegacyModels.value = [];
+  aiEditModel.value = preset.group === "partner" ? preset.model : "";
+  aiEditLegacyModels.value = preset.group === "partner" ? [...(preset.models ?? [])] : [];
   aiEditApiStyle.value = preset.apiStyle;
   aiEditCustomHeaderRows.value = [];
   aiEditEnableThinking.value = true;
@@ -3720,6 +3756,7 @@ function aiEnterEditMode(configId?: string) {
     if (config) {
       aiEditConfigName.value = config.name;
       aiEditProvider.value = config.provider;
+      aiEditProviderPresetId.value = getAiProviderPresetId(config.provider, config.endpoint);
       aiEditApiKey.value = config.apiKey;
       aiEditAuthMethod.value = config.authMethod;
       aiEditEndpoint.value = config.endpoint;
@@ -3755,6 +3792,7 @@ function aiEnterEditMode(configId?: string) {
   } else {
     aiEditConfigName.value = "";
     aiEditProvider.value = "claude";
+    aiEditProviderPresetId.value = "claude";
     aiEditApiKey.value = "";
     aiEditAuthMethod.value = AI_PROVIDER_PRESETS["claude"].authMethod;
     aiEditEndpoint.value = AI_PROVIDER_PRESETS["claude"].endpoint;
@@ -3796,6 +3834,7 @@ async function applyPendingAiConfigDeepLinkDraft() {
   aiEnterEditMode();
   aiEditConfigName.value = draft.name;
   aiEditProvider.value = draft.provider;
+  aiEditProviderPresetId.value = getAiProviderPresetId(draft.provider, draft.endpoint);
   aiEditApiKey.value = "";
   aiEditAuthMethod.value = draft.authMethod;
   aiEditEndpoint.value = draft.endpoint;
@@ -3868,12 +3907,6 @@ function aiDeleteConfig(id: string) {
 
 async function aiConfirmDeleteConfig() {
   if (aiDeleteConfigId.value) {
-    if (settingsStore.activeModel?.configId === aiDeleteConfigId.value) {
-      toast(t("ai.cannotDeleteActiveConfig"), 5000);
-      aiDeleteConfirmOpen.value = false;
-      aiDeleteConfigId.value = null;
-      return;
-    }
     try {
       await settingsStore.deleteAiConfig(aiDeleteConfigId.value);
     } catch (e: any) {
@@ -5284,6 +5317,49 @@ onUnmounted(() => {
                 </div>
               </div>
 
+              <div class="settings-appearance-group">
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <div class="space-y-2">
+                    <Label>{{ t("settings.tabPlacement") }}</Label>
+                    <Select :model-value="editTabPlacement" @update:model-value="setTabPlacement($event as TabPlacement)">
+                      <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="top">{{ t("settings.tabPlacementTop") }}</SelectItem>
+                        <SelectItem value="bottom">{{ t("settings.tabPlacementBottom") }}</SelectItem>
+                        <SelectItem value="left">{{ t("settings.tabPlacementLeft") }}</SelectItem>
+                        <SelectItem value="right">{{ t("settings.tabPlacementRight") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div class="space-y-2">
+                    <Label>{{ t("settings.tabGroup") }}</Label>
+                    <Select :model-value="editTabGroupMode" @update:model-value="setTabGroupMode($event as TabGroupMode)">
+                      <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">{{ t("settings.tabGroupNone") }}</SelectItem>
+                        <SelectItem value="database-type">{{ t("settings.tabGroupDatabaseType") }}</SelectItem>
+                        <SelectItem value="connection">{{ t("settings.tabGroupConnection") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div class="space-y-2">
+                    <Label>{{ t("settings.tabSort") }}</Label>
+                    <Select :model-value="editTabSortMode" @update:model-value="setTabSortMode($event as TabSortMode)">
+                      <SelectTrigger class="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="manual">{{ t("settings.tabSortManual") }}</SelectItem>
+                        <SelectItem value="created-asc">{{ t("settings.tabSortCreated") }}</SelectItem>
+                        <SelectItem value="title-asc">{{ t("settings.tabSortTitle") }}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div class="space-y-1 text-xs text-muted-foreground">
+                  <p>{{ t("settings.tabPlacementDescription") }}</p>
+                  <p>{{ t("settings.tabOrganizationDescription") }}</p>
+                </div>
+              </div>
+
               <div v-if="!isWeb" class="flex items-center justify-between gap-4 rounded-md border bg-muted/20 px-3 py-2">
                 <div class="space-y-1">
                   <Label for="show-tray-icon">{{ t("settings.showTrayIcon") }}</Label>
@@ -5909,7 +5985,7 @@ onUnmounted(() => {
                     <div class="flex h-8 min-w-0 items-center gap-2 border-t bg-background/35 px-2 text-[11px]">
                       <span class="shrink-0 text-muted-foreground">{{ t("grid.filterSqlPreview") }}</span>
                       <code class="min-w-0 flex-1 truncate rounded bg-muted/35 px-1.5 py-0.5">WHERE status = 'ACTIVE'</code>
-                      <span class="shrink-0 rounded bg-primary px-2 py-1 text-primary-foreground">{{ t("grid.applyFilter") }}</span>
+                      <span class="shrink-0 text-muted-foreground/70">{{ t("grid.applyFilter") }}</span>
                     </div>
                   </div>
 
@@ -5927,7 +6003,7 @@ onUnmounted(() => {
                     <div class="flex h-8 min-w-0 items-center gap-2 border-t bg-background/45 px-2 text-[11px]">
                       <span class="shrink-0 text-muted-foreground">{{ t("grid.filterSqlPreview") }}</span>
                       <code class="min-w-0 flex-1 truncate">WHERE status = 'ACTIVE'</code>
-                      <span class="shrink-0 rounded bg-primary px-2 py-1 text-primary-foreground">{{ t("grid.applyFilter") }}</span>
+                      <span class="shrink-0 text-muted-foreground/70">{{ t("grid.applyFilter") }}</span>
                     </div>
                   </div>
                 </div>
@@ -6987,7 +7063,7 @@ onUnmounted(() => {
                 <div v-else class="space-y-2">
                   <div v-for="config in displayedAiConfigs" :key="config.id" class="flex items-center justify-between rounded-md border p-3" :class="{ 'border-primary bg-primary/5': config.isDefault }">
                     <div class="flex items-center gap-3">
-                      <AiProviderLogo :provider="config.provider" :label="config.provider" :icon-slug="AI_PROVIDER_PRESETS[config.provider].iconSlug" />
+                      <AiProviderLogo :provider="config.provider" :label="getAiProviderPreset(config.provider, config.endpoint).label" :icon-slug="getAiProviderPreset(config.provider, config.endpoint).iconSlug" :icon-path="getAiProviderPreset(config.provider, config.endpoint).iconPath" />
                       <div>
                         <div class="flex items-center gap-2">
                           <span class="text-sm font-medium">{{ config.name }}</span>
@@ -6996,7 +7072,7 @@ onUnmounted(() => {
                           </Badge>
                         </div>
                         <div class="text-xs text-muted-foreground">
-                          {{ aiProviderLabel(config.provider, t) }}
+                          {{ getAiProviderPreset(config.provider, config.endpoint).label }}
                         </div>
                       </div>
                     </div>
@@ -7007,7 +7083,7 @@ onUnmounted(() => {
                       <Button type="button" size="sm" variant="ghost" @click="aiEnterEditMode(config.id)">
                         {{ t("common.edit") }}
                       </Button>
-                      <Button v-if="!config.isDefault" type="button" size="sm" variant="ghost" class="text-destructive" @click="aiDeleteConfig(config.id)">
+                      <Button type="button" size="sm" variant="ghost" class="text-destructive" @click="aiDeleteConfig(config.id)">
                         {{ t("common.delete") }}
                       </Button>
                     </div>
@@ -7239,28 +7315,51 @@ onUnmounted(() => {
                 </div>
 
                 <!-- Provider Selection -->
-                <div class="grid grid-cols-3 items-center gap-3">
+                <div class="grid grid-cols-3 items-start gap-3">
                   <Label class="text-right text-xs">{{ t("ai.provider") }}</Label>
-                  <Select :model-value="aiEditProvider" @update:model-value="(v: any) => aiSelectProvider(v)">
-                    <SelectTrigger class="col-span-2" inputClass="h-8 text-xs">
-                      <SelectValue>
-                        <span class="flex items-center gap-2">
-                          <AiProviderLogo :provider="selectedAiProviderPreset.provider" :label="aiProviderLabel(selectedAiProviderPreset.provider, t)" :icon-slug="selectedAiProviderPreset.iconSlug" />
-                          <span>{{ aiProviderLabel(selectedAiProviderPreset.provider, t) }}</span>
-                        </span>
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem v-for="provider in aiProviderOptions" :key="provider.provider" :value="provider.provider">
-                        <span class="flex w-full items-center justify-between gap-4">
+                  <div class="col-span-2 space-y-2">
+                    <Select :model-value="aiEditProviderPresetId" @update:model-value="(v: any) => aiSelectProvider(String(v))">
+                      <SelectTrigger inputClass="h-8 text-xs">
+                        <SelectValue>
                           <span class="flex items-center gap-2">
-                            <AiProviderLogo :provider="provider.provider" :label="aiProviderLabel(provider.provider, t)" :icon-slug="provider.iconSlug" />
-                            <span>{{ aiProviderLabel(provider.provider, t) }}</span>
+                            <AiProviderLogo :provider="selectedAiProviderPreset.provider" :label="selectedAiProviderPreset.label" :icon-slug="selectedAiProviderPreset.iconSlug" :icon-path="selectedAiProviderPreset.iconPath" />
+                            <span>{{ selectedAiProviderPreset.label }}</span>
                           </span>
-                        </span>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent class="w-[32rem] max-w-[calc(100vw-2rem)]">
+                        <div class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                          <SelectGroup class="min-w-0">
+                            <SelectLabel>{{ t("ai.builtinProviders") }}</SelectLabel>
+                            <SelectItem v-for="provider in builtinAiProviderOptions" :key="provider.provider" :value="provider.provider">
+                              <span class="flex w-full min-w-0 items-center gap-2">
+                                <AiProviderLogo :provider="provider.provider" :label="provider.label" :icon-slug="provider.iconSlug" :icon-path="provider.iconPath" />
+                                <span class="truncate">{{ provider.label }}</span>
+                              </span>
+                            </SelectItem>
+                          </SelectGroup>
+                          <SelectGroup v-if="partnerAiProviderOptions.length" class="min-w-0 border-border/60 sm:border-l">
+                            <SelectLabel>{{ t("ai.partnerProviders") }}</SelectLabel>
+                            <SelectItem v-for="provider in partnerAiProviderOptions" :key="provider.id" :value="provider.id">
+                              <span class="flex w-full min-w-0 items-center gap-2">
+                                <AiProviderLogo :provider="provider.provider" :label="provider.label" :icon-slug="provider.iconSlug" :icon-path="provider.iconPath" />
+                                <span class="min-w-0 flex-1 truncate">{{ provider.label }}</span>
+                                <Badge variant="outline" class="h-5 shrink-0 px-1.5 text-[10px] font-normal">{{ t("ai.jalapenoSponsored") }}</Badge>
+                              </span>
+                            </SelectItem>
+                          </SelectGroup>
+                        </div>
+                      </SelectContent>
+                    </Select>
+                    <div v-if="selectedAiPartnerPreset" class="flex items-center gap-3 rounded-md border border-primary/20 bg-primary/5 px-3 py-2">
+                      <div class="min-w-0 flex-1">
+                        <p class="text-[11px] leading-4 text-muted-foreground">{{ t(selectedAiPartnerPreset.descriptionKey) }}</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="icon" class="h-7 w-7 shrink-0" :title="t('ai.visitPartner')" :aria-label="t('ai.visitPartner')" @click="openExternalUrl(selectedAiPartnerPreset.websiteUrl)">
+                        <ExternalLink class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- CLI MCP Status -->
@@ -7318,7 +7417,13 @@ onUnmounted(() => {
                 <!-- API Key -->
                 <div v-if="!aiIsCliProvider" class="grid grid-cols-3 items-center gap-3">
                   <Label class="text-right text-xs">{{ aiCredentialLabel }}</Label>
-                  <PasswordInput v-model="aiEditApiKey" autocomplete="off" class="col-span-2" inputClass="h-8 text-xs" :placeholder="aiCredentialPlaceholder" />
+                  <div class="col-span-2 flex min-w-0 items-center gap-2">
+                    <PasswordInput v-model="aiEditApiKey" autocomplete="off" class="min-w-0 flex-1" inputClass="h-8 text-xs" :placeholder="aiCredentialPlaceholder" />
+                    <Button v-if="selectedAiPartnerPreset" type="button" variant="outline" size="sm" class="h-8 shrink-0 gap-1.5 px-3 text-xs" :title="t('ai.getApiKey')" :aria-label="t('ai.getApiKey')" @click="openExternalUrl(selectedAiPartnerPreset.apiKeyUrl)">
+                      {{ t("ai.getApiKey") }}
+                      <ExternalLink class="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
 
                 <!-- Endpoint -->
