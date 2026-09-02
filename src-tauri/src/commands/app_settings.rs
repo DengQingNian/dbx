@@ -5,7 +5,7 @@ use std::{
 };
 
 use dbx_core::storage::{DesktopSettings, McpGlobalPolicy, McpGlobalPolicyState};
-use tauri::{AppHandle, Emitter, Manager, State, Window};
+use tauri::{AppHandle, Manager, State, Window};
 
 use super::connection::AppState;
 use crate::{
